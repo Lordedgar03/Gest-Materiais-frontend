@@ -44,19 +44,7 @@ function Header() {
     }
   };
 
-  useEffect(() => {
-    async function fetchNotifications() {
-      try {
-        const res = await fetch("https://api.exemplo.com/notificacoes");
-        const data = await res.json();
-        setNotifications(data);
-      } catch {
-        setNotifications([]);
-      }
-    }
-    fetchNotifications();
-  }, []);
-
+ 
   useEffect(() => {
     function handleClickOutside(e) {
       if (!userMenuRef.current?.contains(e.target)) setShowUserMenu(false);
