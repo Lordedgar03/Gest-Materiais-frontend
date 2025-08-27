@@ -1,51 +1,39 @@
-import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+// src/App.jsx
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 
-// Instância centralizada e eventos (garanta que existam em ./services/api.js)
-import api, { authEvents, getToken } from './services/api'
+import Sidebar from "./components/Sidebar";
+import Header from "./components/header";
 
-import Sidebar from './components/Sidebar'
-import Header from './components/header'
-import AppRoutes from './routes/routes'
+import AppRoutes, { isTokenValid } from "./routes/routes";
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [isAuthenticated, setIsAuthenticated] = useState(!!getToken())
+  const location = useLocation();
+  const isLoginPage = location.pathname === "/login";
 
-  const location = useLocation()
-  const navigate = useNavigate()
-  const isLoginPage = location.pathname === '/login'
+  // estado de auth baseado no token
+  const [isAuthenticated, setIsAuthenticated] = useState(() => isTokenValid());
 
+  // escuta mudanças do token (outra aba)
   useEffect(() => {
-    // Auto-logout vindo dos interceptors da API
-    const unsubscribeLogout = authEvents?.onLogout?.(() => {
-      setIsAuthenticated(false)
-      if (!isLoginPage) navigate('/login', { replace: true })
-    }) ?? (() => {})
-
-    // Sincroniza auth entre abas (token no localStorage)
     const onStorage = (e) => {
-      if (e.key === 'token') {
-        const logged = !!e.newValue
-        setIsAuthenticated(logged)
-        if (!logged && !isLoginPage) navigate('/login', { replace: true })
-      }
-    }
+      if (e.key === "token") setIsAuthenticated(isTokenValid());
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
-    window.addEventListener('storage', onStorage)
+  // checagem periódica leve (60s) – exceto na página de login
+  useEffect(() => {
+    if (isLoginPage) return;
+    const id = setInterval(() => setIsAuthenticated(isTokenValid()), 60000);
+    return () => clearInterval(id);
+  }, [isLoginPage]);
 
-    // Sync inicial (reload)
-    setIsAuthenticated(!!getToken())
-
-    return () => {
-      unsubscribeLogout()
-      window.removeEventListener('storage', onStorage)
-    }
-  }, [isLoginPage, navigate])
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Sidebar/Header ocultos no login */}
       {!isLoginPage && <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />}
 
       <div className="flex-1 overflow-auto">
@@ -59,8 +47,5 @@ export default function App() {
         </div>
       </div>
     </div>
-  )
+  );
 }
-
-// Reexporta a instância para compatibilidade
-export { api }

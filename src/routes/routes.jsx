@@ -1,41 +1,56 @@
-import { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
+// src/routes.jsx
+import { Routes, Route, Navigate } from "react-router-dom";
+import { Suspense, lazy } from "react";
+import { jwtDecode } from "jwt-decode";
 
-// Lazy loading para code-splitting (carrega páginas sob demanda)
-const Dashboard = lazy(() => import('../pages/Dashboard'))
-const Categories = lazy(() => import('../pages/categorias/Categories'))
-const Types = lazy(() => import('../pages/tipos/Types'))
-const Materials = lazy(() => import('../pages/materiais/Materials'))
-const Movements = lazy(() => import('../pages/movimentos/Movements'))
-const Reports = lazy(() => import('../pages/Reports'))
-const UsersPage = lazy(() => import('../pages/user/Users'))
-const MaterialsRecycle = lazy(() => import('../pages/MaterialsRecycle'))
-const Ajuda = lazy(() => import('../pages/Ajuda'))
-const Perfil = lazy(() => import('../pages/Perfil'))
-const Login = lazy(() => import('../pages/login/Login'))
-const Requisitions = lazy(() => import('../pages/requisicao/Requisitions'))
-const Receipts = lazy(() => import('../components/receipts'))
+// lazy-loading (opcional, melhora performance em produção)
+const Dashboard         = lazy(() => import("../pages/Dashboard"));
+const Categories        = lazy(() => import("../pages/Categories"));
+const Types             = lazy(() => import("../pages/Types"));
+const Materials         = lazy(() => import("../pages/Materials"));
+const Movements         = lazy(() => import("../pages/Movements"));
+const Reports           = lazy(() => import("../pages/Reports"));
+const UsersPage         = lazy(() => import("../pages/Users"));
+const MaterialsRecycle  = lazy(() => import("../pages/MaterialsRecycle"));
+const Ajuda             = lazy(() => import("../pages/Ajuda"));
+const Perfil            = lazy(() => import("../pages/Perfil"));
+const Login             = lazy(() => import("../pages/Login"));
+const Requisitions      = lazy(() => import("../pages/Requisitions"));
+const Caixa            = lazy(() => import("../pages/Caixa"));
+const PDV             = lazy(() => import("../pages/PDV"));
+const Vendas      = lazy(() => import("../pages/Vendas"));
 
-function ProtectedRoute({ isAuthenticated, children }) {
-  if (!isAuthenticated) return <Navigate to="/login" replace />
-  return <>{children}</>
+// valida JWT (expiração)
+// eslint-disable-next-line react-refresh/only-export-components
+export function isTokenValid() {
+  const token = localStorage.getItem("token");
+  if (!token) return false;
+  try {
+    const { exp } = jwtDecode(token);
+    return typeof exp === "number" ? exp * 1000 > Date.now() : true;
+  } catch {
+    return false;
+  }
+}
+
+function ProtectedRoute({ children, isAuthenticated }) {
+  return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
 export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center py-12 text-gray-600">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Carregando…
+        <div className="p-6 text-gray-600">
+          Carregando…
         </div>
       }
     >
       <Routes>
-        {/* Rota pública */}
+        {/* Pública */}
         <Route path="/login" element={<Login setIsAuthenticated={setIsAuthenticated} />} />
 
-        {/* Rotas protegidas */}
+        {/* Protegidas */}
         <Route
           path="/"
           element={
@@ -44,7 +59,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/dashboard"
           element={
@@ -53,7 +67,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/categorias"
           element={
@@ -62,7 +75,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/tipos"
           element={
@@ -71,7 +83,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/materiais"
           element={
@@ -80,7 +91,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/requisicoes"
           element={
@@ -89,7 +99,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/movimentos"
           element={
@@ -98,7 +107,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/relatorios"
           element={
@@ -107,7 +115,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/utilizadores"
           element={
@@ -116,7 +123,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
+        {/* se tiver a página de recibos, descomente e importe:
         <Route
           path="/recibos"
           element={
@@ -125,7 +132,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
+        */}
         <Route
           path="/ajuda"
           element={
@@ -134,7 +141,6 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/perfil"
           element={
@@ -143,20 +149,47 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-
-        {/* Mantém o caminho com a mesma capitalização usada no projeto */}
         <Route
-          path="/MaterialsRecycle"
+          path="/materials-recycle"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
               <MaterialsRecycle />
             </ProtectedRoute>
           }
         />
+        {/*novo vendas */}
+        <Route
+          path="/vendas"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <Vendas />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pdv"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <PDV />
+            </ProtectedRoute>
+          }
+        /><Route
+          path="/caixa"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <Caixa />
+            </ProtectedRoute>
+          }
+        />
+        
+        
 
-        {/* 404 → redireciona para o dashboard */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        {/* Fallback */}
+        <Route
+          path="*"
+          element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />}
+        />
       </Routes>
     </Suspense>
-  )
+  );
 }
