@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { jwtDecode } from "jwt-decode";
 
+
 // lazy-loading (opcional, melhora performance em produção)
 const Dashboard         = lazy(() => import("../pages/Dashboard"));
 const Categories        = lazy(() => import("../pages/Categories"));

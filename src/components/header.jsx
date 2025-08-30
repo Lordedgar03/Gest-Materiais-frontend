@@ -14,6 +14,8 @@ import {
 } from "lucide-react"
 import api from "../api"
 
+
+
 const commands = [
   { label: "Dashboard", path: "/dashboard" },
   { label: "Categorias", path: "/categorias" },

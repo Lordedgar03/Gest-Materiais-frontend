@@ -1,29 +1,80 @@
-"use client"
+"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
 import {
   Banknote, LockOpen, Lock, CalendarDays, Loader2, X, ChevronRight,
-  DollarSign, ReceiptText, Info, CheckCircle2
-} from "lucide-react"
+  DollarSign, ReceiptText, Info, CheckCircle2, ShieldAlert
+} from "lucide-react";
+
+/* ==================== API ==================== */
+const api = axios.create({ baseURL: "http://localhost:3000/api" });
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 /* ==================== Helpers ==================== */
-const LS_CASH = "demo_cash"
-const LS_SALES = "demo_sales"
-const fmt = (n) => (Number(n || 0)).toLocaleString("pt-PT", { style: "currency", currency: "EUR" })
-const todayKey = () => new Date().toISOString().slice(0, 10)
-const load = (k, fb) => { try { return JSON.parse(localStorage.getItem(k) || "null") ?? fb } catch { return fb } }
-const save = (k, v) => localStorage.setItem(k, JSON.stringify(v))
+const fmt = (n) => (Number(n || 0)).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
+const todayLocal = (tz = "Africa/Sao_Tome") => new Date().toLocaleString("sv-SE", { timeZone: tz }).slice(0, 10);
+
+// JWT + permissão (mesmo padrão do PDV/Vendas)
+function parseJwt(token) {
+  try {
+    const base64 = token.split(".")[1];
+    const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(json);
+  } catch {
+    return {};
+  }
+}
+function hasManageSales(decoded) {
+  if (!decoded) return false;
+
+  const roles = decoded.roles || [];
+  if (decoded.is_admin === true || roles.includes("admin")) return true;
+
+  const rawPerms = []
+    .concat(decoded.permissions || [])
+    .concat(decoded.perms || [])
+    .concat(decoded.scopes || [])
+    .concat(decoded.actions || [])
+    .concat(decoded.allowed || []);
+
+  const normPerms = new Set(
+    rawPerms
+      .map((p) => {
+        if (typeof p === "string") return p.toLowerCase();
+        if (p && typeof p === "object") {
+          const cand = p.code || p.name || p.action_code || p.actionCode || p.permission;
+          return cand ? String(cand).toLowerCase() : "";
+        }
+        return "";
+      })
+      .filter(Boolean)
+  );
+  if (normPerms.has("manage_sales")) return true;
+
+  const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
+  const hasTemplate = templates.some((t) => {
+    const cand = t?.template_code || t?.code || t?.name || t?.permission || t?.action_code || t?.actionCode;
+    return String(cand || "").toLowerCase() === "manage_sales";
+  });
+
+  return hasTemplate;
+}
 
 /* ==================== UI: Modal ==================== */
 function Modal({ open, title, onClose, children, footer }) {
-  const ref = useRef(null)
+  const ref = useRef(null);
   useEffect(() => {
-    if (!open) return
-    const onKey = (e) => e.key === "Escape" && onClose?.()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [open, onClose])
-  if (!open) return null
+    if (!open) return;
+    const onKey = (e) => e.key === "Escape" && onClose?.();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
@@ -41,12 +92,12 @@ function Modal({ open, title, onClose, children, footer }) {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 /* ==================== UI: Toast ==================== */
 function Toast({ msg, onClose }) {
-  if (!msg) return null
+  if (!msg) return null;
   return (
     <div className="fixed bottom-6 right-6 z-50">
       <div className="flex items-start gap-3 rounded-xl bg-gray-900 text-white px-4 py-3 shadow-xl">
@@ -55,78 +106,101 @@ function Toast({ msg, onClose }) {
         <button onClick={onClose} className="ml-2 opacity-80 hover:opacity-100" aria-label="Fechar">✕</button>
       </div>
     </div>
-  )
+  );
 }
 
 /* ==================== Page ==================== */
 export default function Caixa() {
-  const [cash, setCash] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [openOpenModal, setOpenOpenModal] = useState(false)
-  const [openCloseModal, setOpenCloseModal] = useState(false)
-  const [initialBalance, setInitialBalance] = useState("")
-  const [toast, setToast] = useState("")
+  /** Gate de permissão */
+  const decodedRef = useRef(null);
+  if (!decodedRef.current && typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    decodedRef.current = token ? parseJwt(token) : {};
+  }
+  const allowed = hasManageSales(decodedRef.current || {});
+
+  const [cash, setCash] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [openOpenModal, setOpenOpenModal] = useState(false);
+  const [openCloseModal, setOpenCloseModal] = useState(false);
+  const [initialBalance, setInitialBalance] = useState("");
+  const [toast, setToast] = useState("");
+
+  const [salesToday, setSalesToday] = useState([]);
+
+  const loadHoje = async () => {
+    const r = await api.get("/caixas/aberto"); // pode devolver null
+    setCash(r.data || null);
+  };
+
+  const loadSalesHoje = async () => {
+    const dia = todayLocal();
+    const r = await api.get("/vendas", { params: { from: dia, to: dia } });
+    setSalesToday(Array.isArray(r.data) ? r.data : []);
+  };
 
   useEffect(() => {
-    const all = load(LS_CASH, {})
-    setCash(all[todayKey()] ?? null)
-    setLoading(false)
-  }, [])
-
-  const salesToday = useMemo(() => {
-    const list = load(LS_SALES, [])
-    return list.filter((v) => (v.date || "").startsWith(todayKey()))
-  }, [])
+    (async () => {
+      if (!allowed) { setLoading(false); return; }
+      try {
+        setLoading(true);
+        await Promise.all([loadHoje(), loadSalesHoje()]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [allowed]);
 
   const resume = useMemo(() => {
-    const pagas = salesToday.filter((s) => s.status === "Paga")
-    const totalBruto = pagas.reduce((a, s) => a + (s.subtotal || 0), 0)
-    const desconto = pagas.reduce((a, s) => a + (s.desconto || 0), 0)
-    const total = pagas.reduce((a, s) => a + (s.total || 0), 0)
-    return { qtd: pagas.length, totalBruto, desconto, total }
-  }, [salesToday])
+    const pagas = salesToday.filter((s) => s.ven_status === "Paga");
+    const totalBruto = pagas.reduce((a, s) => a + Number(s.ven_subtotal || 0), 0);
+    const desconto = pagas.reduce((a, s) => a + Number(s.ven_desconto || 0), 0);
+    const total = pagas.reduce((a, s) => a + Number(s.ven_total || 0), 0);
+    return { qtd: pagas.length, totalBruto, desconto, total };
+  }, [salesToday]);
 
-  const isAberto = cash?.status === "Aberto"
+  const isAberto = cash?.cx_status === "Aberto";
 
-  const abrirCaixa = () => {
-    const valor = Number(initialBalance || 0)
-    const novo = {
-      id: Date.now(),
-      date: todayKey(),
-      openedAt: new Date().toISOString(),
-      initialBalance: valor,
-      status: "Aberto",
-    }
-    const all = load(LS_CASH, {})
-    all[todayKey()] = novo
-    save(LS_CASH, all)
-    setCash(novo)
-    setOpenOpenModal(false)
-    setToast("Caixa aberto com sucesso.")
-    setTimeout(() => setToast(""), 1800)
-  }
+  const abrirCaixa = async () => {
+    await api.post("/caixas/abrir", { saldo_inicial: Number(initialBalance || 0) });
+    setOpenOpenModal(false);
+    setInitialBalance("");
+    await loadHoje();
+    setToast("Caixa aberto com sucesso.");
+    setTimeout(() => setToast(""), 1800);
+  };
 
-  const fecharCaixa = () => {
-    const all = load(LS_CASH, {})
-    const cur = all[todayKey()]
-    if (!cur) return
-    cur.status = "Fechado"
-    cur.closedAt = new Date().toISOString()
-    cur.finalBalance = Number(cur.initialBalance || 0) + Number(resume.total || 0)
-    all[todayKey()] = cur
-    save(LS_CASH, all)
-    setCash(cur)
-    setOpenCloseModal(false)
-    setToast("Caixa fechado.")
-    setTimeout(() => setToast(""), 1800)
-  }
+  const fecharCaixa = async () => {
+    await api.post("/caixas/fechar");
+    setOpenCloseModal(false);
+    await Promise.all([loadHoje(), loadSalesHoje()]);
+    setToast("Caixa fechado.");
+    setTimeout(() => setToast(""), 1800);
+  };
 
   if (loading) {
     return (
       <main className="min-h-screen grid place-items-center">
         <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
       </main>
-    )
+    );
+  }
+
+  // Gate visual — sem permissão
+  if (!allowed) {
+    return (
+      <main className="min-h-screen grid place-items-center p-6">
+        <div className="max-w-md w-full rounded-2xl border bg-white p-6 text-center">
+          <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-rose-100 grid place-items-center">
+            <ShieldAlert className="text-rose-600" />
+          </div>
+          <h2 className="text-lg font-semibold mb-1">Sem permissão</h2>
+          <p className="text-gray-600 text-sm">
+            O seu utilizador não tem acesso ao módulo <b>Vendas</b> (Caixa).
+          </p>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -158,7 +232,7 @@ export default function Caixa() {
 
       {/* KPIs */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPI title="Saldo inicial" value={fmt(cash?.initialBalance || 0)} />
+        <KPI title="Saldo inicial" value={fmt(cash?.cx_saldo_inicial || 0)} />
         <KPI title="Vendas (pagas)" value={resume.qtd} />
         <KPI title="Descontos do dia" value={`- ${fmt(resume.desconto)}`} tone="amber" />
         <KPI title="Recebido hoje" value={fmt(resume.total)} tone="emerald" />
@@ -180,7 +254,7 @@ export default function Caixa() {
             {!isAberto ? (
               <button
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white"
-                onClick={() => { setInitialBalance(""); setOpenOpenModal(true) }}
+                onClick={() => { setInitialBalance(""); setOpenOpenModal(true); }}
               >
                 <LockOpen size={18} /> Abrir caixa
               </button>
@@ -222,13 +296,13 @@ export default function Caixa() {
                 </thead>
                 <tbody className="bg-white">
                   {salesToday.map((s, idx) => (
-                    <tr key={s.id} className={`border-t ${idx % 2 ? "bg-gray-50/50" : ""}`}>
-                      <Td>{s.code}</Td>
-                      <Td>{new Date(s.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Td>
-                      <Td>{fmt(s.subtotal)}</Td>
-                      <Td className="text-amber-700">- {fmt(s.desconto)}</Td>
-                      <Td className="font-medium">{fmt(s.total)}</Td>
-                      <Td><Status s={s.status} /></Td>
+                    <tr key={s.ven_id} className={`border-t ${idx % 2 ? "bg-gray-50/50" : ""}`}>
+                      <Td>{s.ven_codigo}</Td>
+                      <Td>{new Date(s.ven_data).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Td>
+                      <Td>{fmt(s.ven_subtotal)}</Td>
+                      <Td className="text-amber-700">- {fmt(s.ven_desconto)}</Td>
+                      <Td className="font-medium">{fmt(s.ven_total)}</Td>
+                      <Td><Status s={s.ven_status} /></Td>
                     </tr>
                   ))}
                 </tbody>
@@ -266,9 +340,9 @@ export default function Caixa() {
       >
         <p className="text-sm text-gray-700 mb-3">Revise o resumo antes de confirmar o fechamento.</p>
         <ul className="text-sm space-y-1">
-          <li>Saldo inicial: <b>{fmt(cash?.initialBalance || 0)}</b></li>
+          <li>Saldo inicial: <b>{fmt(cash?.cx_saldo_inicial || 0)}</b></li>
           <li>Recebido hoje: <b>{fmt(resume.total)}</b></li>
-          <li className="pt-1 border-t">Saldo final estimado: <b>{fmt((cash?.initialBalance || 0) + (resume.total || 0))}</b></li>
+          <li className="pt-1 border-t">Saldo final estimado: <b>{fmt(Number(cash?.cx_saldo_inicial || 0) + Number(resume.total || 0))}</b></li>
         </ul>
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={() => setOpenCloseModal(false)} className="px-4 py-2 rounded-lg border">Cancelar</button>
@@ -278,7 +352,7 @@ export default function Caixa() {
 
       <Toast msg={toast} onClose={() => setToast("")} />
     </main>
-  )
+  );
 }
 
 /* ==================== Small UI bits ==================== */
@@ -287,21 +361,17 @@ function KPI({ title, value, tone = "indigo" }) {
     indigo: "from-indigo-50 to-white ring-indigo-200/60",
     emerald: "from-emerald-50 to-white ring-emerald-200/60",
     amber: "from-amber-50 to-white ring-amber-200/60",
-  }[tone]
+  }[tone];
   return (
     <div className={`rounded-2xl p-4 bg-gradient-to-b ${color} ring-1`}>
       <div className="text-sm text-gray-600">{title}</div>
       <div className="text-2xl font-semibold text-gray-900">{value}</div>
     </div>
-  )
+  );
 }
-function Th({ children }) { return <th className="px-3 py-2 text-left font-semibold text-gray-600 uppercase text-xs">{children}</th> }
-function Td({ children, className = "" }) { return <td className={`px-3 py-2 ${className}`}>{children}</td> }
+function Th({ children }) { return <th className="px-3 py-2 text-left font-semibold text-gray-600 uppercase text-xs">{children}</th>; }
+function Td({ children, className = "" }) { return <td className={`px-3 py-2 ${className}`}>{children}</td>; }
 function Status({ s }) {
-  const map = {
-    Paga: "bg-emerald-100 text-emerald-800",
-    Estornada: "bg-amber-100 text-amber-800",
-    Cancelada: "bg-rose-100 text-rose-800",
-  }
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${map[s] || "bg-gray-100 text-gray-800"}`}>{s}</span>
+  const map = { Paga: "bg-emerald-100 text-emerald-800", Estornada: "bg-amber-100 text-amber-800", Cancelada: "bg-rose-100 text-rose-800" };
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${map[s] || "bg-gray-100 text-gray-800"}`}>{s}</span>;
 }
