@@ -317,8 +317,8 @@ export default function CategoriesPage() {
   }
 
   return (
-    <div className="min-h-screen">
-      <div className="container mx-auto  space-y-6">
+    <div className="min-h-screen mx-auto">
+      <div className="container  space-y-6">
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

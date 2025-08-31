@@ -98,25 +98,14 @@ function Header() {
           {/* Search (atalho abre palette) */}
           <button
             onClick={() => setShowCmd(true)}
-            className="hidden md:flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+            className="hidden md:flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 border border-gray-500 dark:border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
             title="Pesquisar (Ctrl/Cmd + K)"
           >
             <Search size={16} />
             <span className="hidden sm:block">Pesquisar</span>
             <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600">Ctrl/⌘ K</span>
           </button>
-          <button className="flex  gap-2 text-sm text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition">
-            <Link to="/pdv" className="w-full block bg-[#5548D9] hover:bg-[#6C63FF] text-white px-3 py-2 rounded-lg text-sm">
-              Atender 
-            </Link>
-            <Link to="/caixa" className="w-full block bg-[#5548D9] hover:bg-[#6C63FF] text-white px-3 py-2 rounded-lg text-sm">
-              Caixa
-            </Link>
-             <Link to="/vendas" className="w-full block bg-[#5548D9] hover:bg-[#6C63FF] text-white px-3 py-2 rounded-lg text-sm">
-              Vendas
-            </Link>
-          </button>
-
+        
           {/* Theme toggle */}
           <button
             onClick={() => setTheme(t => (t === "light" ? "dark" : "light"))}

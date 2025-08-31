@@ -1,74 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
+import React from "react";
 import {
   Banknote, LockOpen, Lock, CalendarDays, Loader2, X, ChevronRight,
   DollarSign, ReceiptText, Info, CheckCircle2, ShieldAlert
 } from "lucide-react";
-
-/* ==================== API ==================== */
-const api = axios.create({ baseURL: "http://localhost:3000/api" });
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-/* ==================== Helpers ==================== */
-const fmt = (n) => (Number(n || 0)).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
-const todayLocal = (tz = "Africa/Sao_Tome") => new Date().toLocaleString("sv-SE", { timeZone: tz }).slice(0, 10);
-
-// JWT + permissão (mesmo padrão do PDV/Vendas)
-function parseJwt(token) {
-  try {
-    const base64 = token.split(".")[1];
-    const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(json);
-  } catch {
-    return {};
-  }
-}
-function hasManageSales(decoded) {
-  if (!decoded) return false;
-
-  const roles = decoded.roles || [];
-  if (decoded.is_admin === true || roles.includes("admin")) return true;
-
-  const rawPerms = []
-    .concat(decoded.permissions || [])
-    .concat(decoded.perms || [])
-    .concat(decoded.scopes || [])
-    .concat(decoded.actions || [])
-    .concat(decoded.allowed || []);
-
-  const normPerms = new Set(
-    rawPerms
-      .map((p) => {
-        if (typeof p === "string") return p.toLowerCase();
-        if (p && typeof p === "object") {
-          const cand = p.code || p.name || p.action_code || p.actionCode || p.permission;
-          return cand ? String(cand).toLowerCase() : "";
-        }
-        return "";
-      })
-      .filter(Boolean)
-  );
-  if (normPerms.has("manage_sales")) return true;
-
-  const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
-  const hasTemplate = templates.some((t) => {
-    const cand = t?.template_code || t?.code || t?.name || t?.permission || t?.action_code || t?.actionCode;
-    return String(cand || "").toLowerCase() === "manage_sales";
-  });
-
-  return hasTemplate;
-}
+import { useCaixa } from "../hooks/useCaixa";
 
 /* ==================== UI: Modal ==================== */
 function Modal({ open, title, onClose, children, footer }) {
-  const ref = useRef(null);
-  useEffect(() => {
+  React.useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === "Escape" && onClose?.();
     document.addEventListener("keydown", onKey);
@@ -80,7 +21,7 @@ function Modal({ open, title, onClose, children, footer }) {
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div ref={ref} className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-gray-200">
+        <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-gray-200">
           <div className="flex items-center justify-between p-4 border-b">
             <h3 className="text-lg font-semibold">{title}</h3>
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Fechar">
@@ -103,7 +44,9 @@ function Toast({ msg, onClose }) {
       <div className="flex items-start gap-3 rounded-xl bg-gray-900 text-white px-4 py-3 shadow-xl">
         <CheckCircle2 className="mt-0.5 text-emerald-400" />
         <div className="text-sm">{msg}</div>
-        <button onClick={onClose} className="ml-2 opacity-80 hover:opacity-100" aria-label="Fechar">✕</button>
+        <button onClick={onClose} className="ml-2 opacity-80 hover:opacity-100" aria-label="Fechar">
+          ✕
+        </button>
       </div>
     </div>
   );
@@ -111,72 +54,25 @@ function Toast({ msg, onClose }) {
 
 /* ==================== Page ==================== */
 export default function Caixa() {
-  /** Gate de permissão */
-  const decodedRef = useRef(null);
-  if (!decodedRef.current && typeof window !== "undefined") {
-    const token = localStorage.getItem("token");
-    decodedRef.current = token ? parseJwt(token) : {};
-  }
-  const allowed = hasManageSales(decodedRef.current || {});
-
-  const [cash, setCash] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [openOpenModal, setOpenOpenModal] = useState(false);
-  const [openCloseModal, setOpenCloseModal] = useState(false);
-  const [initialBalance, setInitialBalance] = useState("");
-  const [toast, setToast] = useState("");
-
-  const [salesToday, setSalesToday] = useState([]);
-
-  const loadHoje = async () => {
-    const r = await api.get("/caixas/aberto"); // pode devolver null
-    setCash(r.data || null);
-  };
-
-  const loadSalesHoje = async () => {
-    const dia = todayLocal();
-    const r = await api.get("/vendas", { params: { from: dia, to: dia } });
-    setSalesToday(Array.isArray(r.data) ? r.data : []);
-  };
-
-  useEffect(() => {
-    (async () => {
-      if (!allowed) { setLoading(false); return; }
-      try {
-        setLoading(true);
-        await Promise.all([loadHoje(), loadSalesHoje()]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [allowed]);
-
-  const resume = useMemo(() => {
-    const pagas = salesToday.filter((s) => s.ven_status === "Paga");
-    const totalBruto = pagas.reduce((a, s) => a + Number(s.ven_subtotal || 0), 0);
-    const desconto = pagas.reduce((a, s) => a + Number(s.ven_desconto || 0), 0);
-    const total = pagas.reduce((a, s) => a + Number(s.ven_total || 0), 0);
-    return { qtd: pagas.length, totalBruto, desconto, total };
-  }, [salesToday]);
-
-  const isAberto = cash?.cx_status === "Aberto";
-
-  const abrirCaixa = async () => {
-    await api.post("/caixas/abrir", { saldo_inicial: Number(initialBalance || 0) });
-    setOpenOpenModal(false);
-    setInitialBalance("");
-    await loadHoje();
-    setToast("Caixa aberto com sucesso.");
-    setTimeout(() => setToast(""), 1800);
-  };
-
-  const fecharCaixa = async () => {
-    await api.post("/caixas/fechar");
-    setOpenCloseModal(false);
-    await Promise.all([loadHoje(), loadSalesHoje()]);
-    setToast("Caixa fechado.");
-    setTimeout(() => setToast(""), 1800);
-  };
+  const {
+    allowed,
+    cash,
+    loading,
+    isAberto,
+    openOpenModal,
+    setOpenOpenModal,
+    openCloseModal,
+    setOpenCloseModal,
+    initialBalance,
+    setInitialBalance,
+    toast,
+    setToast,
+    salesToday,
+    resume,
+    abrirCaixa,
+    fecharCaixa,
+    fmt,
+  } = useCaixa();
 
   if (loading) {
     return (
@@ -204,7 +100,7 @@ export default function Caixa() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b  space-y-6">
+    <main className="min-h-screen bg-gradient-to-b space-y-6">
       <header className="rounded-2xl p-6 bg-white border border-gray-200 shadow-sm flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="h-12 w-12 rounded-xl bg-indigo-100 grid place-items-center">
@@ -254,7 +150,10 @@ export default function Caixa() {
             {!isAberto ? (
               <button
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white"
-                onClick={() => { setInitialBalance(""); setOpenOpenModal(true); }}
+                onClick={() => {
+                  setInitialBalance("");
+                  setOpenOpenModal(true);
+                }}
               >
                 <LockOpen size={18} /> Abrir caixa
               </button>
@@ -298,11 +197,18 @@ export default function Caixa() {
                   {salesToday.map((s, idx) => (
                     <tr key={s.ven_id} className={`border-t ${idx % 2 ? "bg-gray-50/50" : ""}`}>
                       <Td>{s.ven_codigo}</Td>
-                      <Td>{new Date(s.ven_data).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Td>
+                      <Td>
+                        {new Date(s.ven_data).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </Td>
                       <Td>{fmt(s.ven_subtotal)}</Td>
                       <Td className="text-amber-700">- {fmt(s.ven_desconto)}</Td>
                       <Td className="font-medium">{fmt(s.ven_total)}</Td>
-                      <Td><Status s={s.ven_status} /></Td>
+                      <Td>
+                        <Status s={s.ven_status} />
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -316,19 +222,32 @@ export default function Caixa() {
       <Modal
         open={openOpenModal}
         onClose={() => setOpenOpenModal(false)}
-        title={<span className="inline-flex items-center gap-2"><DollarSign className="text-indigo-600" /> Abrir caixa</span>}
+        title={
+          <span className="inline-flex items-center gap-2">
+            <DollarSign className="text-indigo-600" /> Abrir caixa
+          </span>
+        }
       >
-        <label className="block text-sm font-medium text-gray-700 mb-1">Saldo inicial (opcional)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Saldo inicial (opcional)
+        </label>
         <input
-          type="number" step="0.01" min="0"
-          value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)}
+          type="number"
+          step="0.01"
+          min="0"
+          value={initialBalance}
+          onChange={(e) => setInitialBalance(e.target.value)}
           className="w-full border rounded-lg px-3 py-2"
           placeholder="0,00"
           autoFocus
         />
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={() => setOpenOpenModal(false)} className="px-4 py-2 rounded-lg border">Cancelar</button>
-          <button onClick={abrirCaixa} className="px-4 py-2 rounded-lg bg-indigo-600 text-white">Confirmar</button>
+          <button onClick={() => setOpenOpenModal(false)} className="px-4 py-2 rounded-lg border">
+            Cancelar
+          </button>
+          <button onClick={abrirCaixa} className="px-4 py-2 rounded-lg bg-indigo-600 text-white">
+            Confirmar
+          </button>
         </div>
       </Modal>
 
@@ -336,17 +255,38 @@ export default function Caixa() {
       <Modal
         open={openCloseModal}
         onClose={() => setOpenCloseModal(false)}
-        title={<span className="inline-flex items-center gap-2"><Lock className="text-rose-600" /> Fechar caixa</span>}
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Lock className="text-rose-600" /> Fechar caixa
+          </span>
+        }
       >
-        <p className="text-sm text-gray-700 mb-3">Revise o resumo antes de confirmar o fechamento.</p>
+        <p className="text-sm text-gray-700 mb-3">
+          Revise o resumo antes de confirmar o fechamento.
+        </p>
         <ul className="text-sm space-y-1">
-          <li>Saldo inicial: <b>{fmt(cash?.cx_saldo_inicial || 0)}</b></li>
-          <li>Recebido hoje: <b>{fmt(resume.total)}</b></li>
-          <li className="pt-1 border-t">Saldo final estimado: <b>{fmt(Number(cash?.cx_saldo_inicial || 0) + Number(resume.total || 0))}</b></li>
+          <li>
+            Saldo inicial: <b>{fmt(cash?.cx_saldo_inicial || 0)}</b>
+          </li>
+          <li>
+            Recebido hoje: <b>{fmt(resume.total)}</b>
+          </li>
+          <li className="pt-1 border-t">
+            Saldo final estimado:{" "}
+            <b>
+              {fmt(
+                Number(cash?.cx_saldo_inicial || 0) + Number(resume.total || 0),
+              )}
+            </b>
+          </li>
         </ul>
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={() => setOpenCloseModal(false)} className="px-4 py-2 rounded-lg border">Cancelar</button>
-          <button onClick={fecharCaixa} className="px-4 py-2 rounded-lg bg-rose-600 text-white">Fechar caixa</button>
+          <button onClick={() => setOpenCloseModal(false)} className="px-4 py-2 rounded-lg border">
+            Cancelar
+          </button>
+          <button onClick={fecharCaixa} className="px-4 py-2 rounded-lg bg-rose-600 text-white">
+            Fechar caixa
+          </button>
         </div>
       </Modal>
 
@@ -369,9 +309,29 @@ function KPI({ title, value, tone = "indigo" }) {
     </div>
   );
 }
-function Th({ children }) { return <th className="px-3 py-2 text-left font-semibold text-gray-600 uppercase text-xs">{children}</th>; }
-function Td({ children, className = "" }) { return <td className={`px-3 py-2 ${className}`}>{children}</td>; }
+function Th({ children }) {
+  return (
+    <th className="px-3 py-2 text-left font-semibold text-gray-600 uppercase text-xs">
+      {children}
+    </th>
+  );
+}
+function Td({ children, className = "" }) {
+  return <td className={`px-3 py-2 ${className}`}>{children}</td>;
+}
 function Status({ s }) {
-  const map = { Paga: "bg-emerald-100 text-emerald-800", Estornada: "bg-amber-100 text-amber-800", Cancelada: "bg-rose-100 text-rose-800" };
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${map[s] || "bg-gray-100 text-gray-800"}`}>{s}</span>;
+  const map = {
+    Paga: "bg-emerald-100 text-emerald-800",
+    Estornada: "bg-amber-100 text-amber-800",
+    Cancelada: "bg-rose-100 text-rose-800",
+  };
+  return (
+    <span
+      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+        map[s] || "bg-gray-100 text-gray-800"
+      }`}
+    >
+      {s}
+    </span>
+  );
 }

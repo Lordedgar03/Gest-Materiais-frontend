@@ -1,23 +1,49 @@
-"use client"
+/* eslint-disable no-unused-vars */
+// src/pages/User.jsx
+"use client";
 
-import React, { useState, useEffect } from "react"
+import React, { useEffect, useState } from "react";
 import {
-  Users, PlusCircle, XCircle, Edit, Trash2, UserPlus, Loader2, Search,
-  ChevronLeft, ChevronRight, Shield, Mail, X, Camera, CheckCircle,
-} from "lucide-react"
-import { useUser, PERMISSION_TEMPLATES } from "../hooks/useUser"
+  Users,
+  PlusCircle,
+  Edit,
+  Trash2,
+  Loader2,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Shield,
+  Mail,
+  X,
+  Camera,
+  CheckCircle,
+} from "lucide-react";
+import { useUser, PERMISSION_TEMPLATES } from "../hooks/useUser";
 
-/* ============ UI ATÔMICA ============ */
-function Modal({ open, title, onClose, children, footer, maxWidth = "max-w-4xl" }) {
-  if (!open) return null
+/* ========= UI base ========= */
+function Modal({
+  open,
+  title,
+  onClose,
+  children,
+  footer,
+  maxWidth = "max-w-4xl",
+}) {
+  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="absolute inset-0 flex items-start justify-center p-4 overflow-y-auto">
-        <div className={`w-full ${maxWidth} mt-8 rounded-xl bg-white shadow-xl border border-gray-200`}>
+        <div
+          className={`w-full ${maxWidth} mt-10 rounded-2xl bg-white shadow-xl border border-gray-200`}
+        >
           <div className="flex items-center justify-between p-4 border-b">
             <h3 className="text-lg font-semibold">{title}</h3>
-            <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Fechar modal">
+            <button
+              onClick={onClose}
+              className="p-2 rounded hover:bg-gray-100"
+              aria-label="Fechar modal"
+            >
               <X size={18} />
             </button>
           </div>
@@ -26,10 +52,11 @@ function Modal({ open, title, onClose, children, footer, maxWidth = "max-w-4xl" 
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function ConfirmDeleteModal({ open, onClose, onConfirm, name, loading }) {
+  if (!open) return null;
   return (
     <Modal
       open={open}
@@ -37,54 +64,76 @@ function ConfirmDeleteModal({ open, onClose, onConfirm, name, loading }) {
       title="Confirmar exclusão"
       footer={
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 border rounded-md">Cancelar</button>
+          <button onClick={onClose} className="px-4 py-2 border rounded-md">
+            Cancelar
+          </button>
           <button
             onClick={onConfirm}
             disabled={loading}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
             Excluir
           </button>
         </div>
       }
     >
       <p className="text-sm text-gray-700">
-        Tem certeza que deseja excluir <span className="font-semibold">{name}</span>? Esta ação não pode ser desfeita.
+        Tem certeza que deseja excluir{" "}
+        <span className="font-semibold">{name}</span>? Esta ação não pode ser
+        desfeita.
       </p>
     </Modal>
-  )
+  );
 }
 
 function Avatar({ src, name, size = "md" }) {
-  const sizeClasses = { sm: "h-8 w-8 text-sm", md: "h-10 w-10 text-base", lg: "h-16 w-16 text-xl", xl: "h-24 w-24 text-2xl" }
-  const initials = (name || "")
-    .split(" ")
-    .filter(Boolean)
-    .map((p) => p[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2) || "??"
+  const sizeClasses = {
+    sm: "h-8 w-8 text-sm",
+    md: "h-10 w-10 text-base",
+    lg: "h-16 w-16 text-xl",
+    xl: "h-24 w-24 text-2xl",
+  };
+  const initials =
+    (name || "")
+      .split(" ")
+      .filter(Boolean)
+      .map((p) => p[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "??";
 
   return src ? (
     <img
       src={src || "/placeholder.svg"}
-      alt={name}
+      alt={name || "avatar"}
       className={`${sizeClasses[size]} rounded-full object-cover border-2 border-gray-200`}
     />
   ) : (
-    <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold border-2 border-gray-200`}>
+    <div
+      className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-semibold border-2 border-gray-200`}
+    >
       {initials}
     </div>
-  )
+  );
 }
 
 function StatusBadge({ status }) {
   const cls =
     status === "ativo"
       ? "bg-green-100 text-green-800"
-      : "bg-red-100 text-red-800"
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${cls}`}>{status === "ativo" ? "Ativo" : "Inativo"}</span>
+      : "bg-red-100 text-red-800";
+  return (
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${cls}`}
+    >
+      {status === "ativo" ? "Ativo" : "Inativo"}
+    </span>
+  );
 }
 
 function RoleBadge({ tipo }) {
@@ -92,150 +141,166 @@ function RoleBadge({ tipo }) {
     admin: "bg-blue-100 text-blue-800",
     funcionario: "bg-gray-100 text-gray-800",
     professor: "bg-purple-100 text-purple-800",
-  }
+  };
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${styles[tipo] || styles.funcionario}`}>
+    <span
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+        styles[tipo || "funcionario"] || styles.funcionario
+      }`}
+    >
       {tipo}
     </span>
-  )
+  );
 }
 
-/* ============ FORM MODAL ============ */
+/* ========= Form (novo/editar) ========= */
 function UserForm({ user, categoriasList, onClose, onSubmit, uploadAvatar }) {
-  const isEdit = Boolean(user)
-  const [nome, setNome] = useState(user?.user_nome || "")
-  const [email, setEmail] = useState(user?.user_email || "")
-  const [senha, setSenha] = useState("")
-  const [tipo, setTipo] = useState(user?.user_tipo || "funcionario")
-  const [status, setStatus] = useState(user?.user_status || "ativo")
-  const [avatar, setAvatar] = useState(user?.avatar_url || "")
-  const [avatarError, setAvatarError] = useState("")
-  const [formError, setFormError] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const isEdit = Boolean(user?.user_id);
 
-  // permissões (somente para não-admin)
-  const isAdminForm = tipo === "admin"
-  const extractPerms = (templates) => {
-    if (!Array.isArray(templates)) return []
-    return Array.from(new Set(templates.map(t => t.template_code)))
-  }
-  const extractCats = (templates) => {
-    if (!Array.isArray(templates)) return []
-    return templates
-      .filter(t => t.template_code === "manage_category" && t.resource_id != null)
-      .map(t => Number(t.resource_id))
-      .filter(Boolean)
-  }
+  const [nome, setNome] = useState("");
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [tipo, setTipo] = useState("funcionario");
+  const [status, setStatus] = useState("ativo");
+  const [avatar, setAvatar] = useState("");
+  const [formError, setFormError] = useState("");
+  const [avatarError, setAvatarError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  const [templates, setTemplates] = useState(() => extractPerms(user?.templates))
-  const [selectedCats, setSelectedCats] = useState(() => extractCats(user?.templates))
+  const extractPerms = (templates) =>
+    Array.isArray(templates)
+      ? Array.from(new Set(templates.map((t) => t.template_code)))
+      : [];
+  const extractCats = (templates) =>
+    Array.isArray(templates)
+      ? templates
+          .filter(
+            (t) =>
+              t.template_code === "manage_category" && t.resource_id != null
+          )
+          .map((t) => Number(t.resource_id))
+          .filter(Boolean)
+      : [];
+
+  const [templates, setTemplates] = useState([]);
+  const [selectedCats, setSelectedCats] = useState([]);
 
   useEffect(() => {
-    setFormError("")
-    if (tipo === "admin") {
-      setTemplates([])
-      setSelectedCats([])
-    } else if (isEdit && user?.templates) {
-      setTemplates(extractPerms(user.templates))
-      setSelectedCats(extractCats(user.templates))
+    setFormError("");
+    if (isEdit && user) {
+      setNome(user.user_nome || "");
+      setEmail(user.user_email || "");
+      setTipo(user.user_tipo || "funcionario");
+      setStatus(user.user_status || "ativo");
+      setAvatar(user.avatar_url || "");
+      setTemplates(extractPerms(user.templates));
+      setSelectedCats(extractCats(user.templates));
+      setSenha("");
+    } else {
+      setNome("");
+      setEmail("");
+      setTipo("funcionario");
+      setStatus("ativo");
+      setAvatar("");
+      setTemplates([]);
+      setSelectedCats([]);
+      setSenha("");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipo])
+  }, [isEdit, user]);
+
+  const isAdminForm = tipo === "admin";
 
   const toggleTemplate = (code) => {
-    setTemplates(prev => {
-      const has = prev.includes(code)
-      const next = has ? prev.filter(c => c !== code) : [...prev, code]
-      if (has && code === "manage_category") setSelectedCats([])
-      return next
-    })
-  }
+    setTemplates((prev) => {
+      const has = prev.includes(code);
+      const next = has ? prev.filter((c) => c !== code) : [...prev, code];
+      if (has && code === "manage_category") setSelectedCats([]);
+      return next;
+    });
+  };
+
   const toggleCat = (id) => {
-    setSelectedCats(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-  }
+    setSelectedCats((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const handleAvatarUpload = async (event) => {
-    setAvatarError("")
-    const file = event.target.files?.[0]
-    if (!file) return
+    setAvatarError("");
+    const file = event.target.files?.[0];
+    if (!file) return;
     if (!file.type.startsWith("image/")) {
-      setAvatarError("Selecione um ficheiro de imagem (JPG/PNG/GIF).")
-      return
+      setAvatarError("Selecione um ficheiro de imagem (JPG/PNG/GIF).");
+      return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      setAvatarError("Imagem acima de 5MB.")
-      return
+      setAvatarError("Imagem acima de 5MB.");
+      return;
     }
-    setUploadingAvatar(true)
+    setUploadingAvatar(true);
     try {
-      const url = await uploadAvatar(file)
-      setAvatar(url)
+      const url = await uploadAvatar(file);
+      setAvatar(url);
     } catch {
-      setAvatarError("Falha ao enviar a imagem. Tente novamente.")
+      setAvatarError(
+        "Falha ao enviar a imagem. Verifique o endpoint /upload-avatar."
+      );
     } finally {
-      setUploadingAvatar(false)
+      setUploadingAvatar(false);
     }
-  }
+  };
 
   const submit = async (e) => {
-    e.preventDefault()
-    setFormError("")
-    if (nome.trim().length < 3) {
-      setFormError("O nome deve ter pelo menos 3 caracteres.")
-      return
-    }
-    if (!isEdit && senha.trim().length < 6) {
-      setFormError("A senha do novo utilizador deve ter pelo menos 6 caracteres.")
-      return
-    }
+    e.preventDefault();
+    setFormError("");
+    if (nome.trim().length < 3)
+      return setFormError("O nome deve ter pelo menos 3 caracteres.");
+    if (!isEdit && senha.trim().length < 6)
+      return setFormError(
+        "A senha do novo utilizador deve ter pelo menos 6 caracteres."
+      );
 
-    setSubmitting(true)
+    setSubmitting(true);
     try {
       const payload = {
         user_nome: nome.trim(),
         user_email: email.trim(),
-        avatar_url: avatar || null,
-        ...(senha && { user_senha: senha }),
-        roles: [tipo],
+        // ATENÇÃO: user_senha só será usado no CREATE (saveUser filtra isso)
+        ...(senha ? { user_senha: senha } : {}),
+        // Estes dois só serão enviados no EDIT (saveUser filtra isso)
         user_tipo: tipo,
         user_status: status,
+        roles: [tipo],
         templates: isAdminForm
           ? []
-          : templates.flatMap(code =>
+          : templates.flatMap((code) =>
               code === "manage_category"
-                ? selectedCats.map(catId => ({ template_code: "manage_category", resource_type: "categoria", resource_id: catId }))
+                ? selectedCats.map((catId) => ({
+                    template_code: "manage_category",
+                    resource_type: "categoria",
+                    resource_id: catId,
+                  }))
                 : [{ template_code: code }]
             ),
-      }
-      await onSubmit({ isEdit, userId: user?.user_id, payload })
-      onClose()
+      };
+      await onSubmit({ isEdit, userId: user?.user_id, payload });
+      onClose();
     } catch (err) {
-      setFormError(err?.response?.data?.message || err?.message || "Não foi possível salvar o utilizador.")
+      setFormError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Não foi possível salvar o utilizador."
+      );
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
   return (
     <form onSubmit={submit} className="space-y-6">
-      {/* Cabeçalho */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-blue-600" />
-            {isEdit ? "Editar utilizador" : "Novo utilizador"}
-          </h3>
-          <p className="text-sm text-gray-600">
-            {isEdit ? "Atualize as informações do utilizador." : "Preencha os dados para criar um novo utilizador."}
-          </p>
-        </div>
-        <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
-          <X size={16} /> Fechar
-        </button>
-      </div>
+      <div className="flex items-center justify-between"></div>
 
-      {/* Mensagem de erro do formulário */}
       {formError && (
         <div className="rounded-md border border-rose-200 bg-rose-50 text-rose-700 px-3 py-2 text-sm">
           {formError}
@@ -247,44 +312,75 @@ function UserForm({ user, categoriasList, onClose, onSubmit, uploadAvatar }) {
         <div className="relative">
           <Avatar src={avatar} name={nome} size="xl" />
           <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-2 cursor-pointer shadow-lg transition-colors">
-            {uploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-            <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={uploadingAvatar}/>
+            {uploadingAvatar ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Camera className="h-4 w-4" />
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarUpload}
+              className="hidden"
+              disabled={uploadingAvatar}
+            />
           </label>
         </div>
         {avatarError && <p className="text-xs text-rose-600">{avatarError}</p>}
-        <p className="text-xs text-gray-500 text-center">JPG/PNG/GIF • até 5MB</p>
+        <p className="text-xs text-gray-500 text-center">
+          JPG/PNG/GIF • até 5MB
+        </p>
       </div>
 
       {/* Campos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Nome
+          </label>
           <input
-            type="text" value={nome} onChange={(e)=>setNome(e.target.value)} required
+            type="text"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            required
             className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
             placeholder="Nome completo"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Email
+          </label>
           <input
-            type="email" value={email} onChange={(e)=>setEmail(e.target.value)} required
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
             className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
             placeholder="email@exemplo.com"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Senha
+          </label>
           <input
-            type="password" value={senha} onChange={(e)=>setSenha(e.target.value)}
+            type="password"
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
             className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-            placeholder={isEdit ? "Deixe vazio para manter" : "Mínimo 6 caracteres"}
+            placeholder={
+              isEdit ? "Deixe vazio para manter" : "Mínimo 6 caracteres"
+            }
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de utilizador</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Tipo de utilizador
+          </label>
           <select
-            value={tipo} onChange={(e)=>setTipo(e.target.value)}
+            value={tipo}
+            onChange={(e) => setTipo(e.target.value)}
             className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
           >
             <option value="admin">Administrador</option>
@@ -293,9 +389,12 @@ function UserForm({ user, categoriasList, onClose, onSubmit, uploadAvatar }) {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Status
+          </label>
           <select
-            value={status} onChange={(e)=>setStatus(e.target.value)}
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
             className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500"
           >
             <option value="ativo">Ativo</option>
@@ -304,12 +403,14 @@ function UserForm({ user, categoriasList, onClose, onSubmit, uploadAvatar }) {
         </div>
       </div>
 
-      {/* Permissões (quando não-admin) */}
-      {!isAdminForm && (
+      {/* Permissões (oculta para admin) */}
+      {tipo !== "admin" && (
         <div className="border-t pt-6">
           <div className="flex items-center gap-2 mb-3">
             <Shield className="h-5 w-5 text-blue-600" />
-            <h4 className="text-base font-semibold text-gray-900">Permissões</h4>
+            <h4 className="text-base font-semibold text-gray-900">
+              Permissões
+            </h4>
             {templates.length > 0 && (
               <span className="text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                 <CheckCircle className="h-3 w-3" />
@@ -320,24 +421,40 @@ function UserForm({ user, categoriasList, onClose, onSubmit, uploadAvatar }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {PERMISSION_TEMPLATES.map((tpl) => {
-              const checked = templates.includes(tpl.code)
+              const checked = templates.includes(tpl.code);
               return (
                 <label
                   key={tpl.code}
                   className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
-                    checked ? "border-blue-300 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                    checked
+                      ? "border-blue-300 bg-blue-50"
+                      : "border-gray-200 hover:bg-gray-50"
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() => toggleTemplate(tpl.code)}
+                    onChange={() =>
+                      setTemplates((prev) =>
+                        checked
+                          ? prev.filter((c) => c !== tpl.code)
+                          : [...prev, tpl.code]
+                      )
+                    }
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
-                  <span className={`text-sm ${checked ? "text-blue-900 font-medium" : "text-gray-700"}`}>{tpl.label}</span>
-                  {checked && <CheckCircle className="h-4 w-4 text-blue-600 ml-auto" />}
+                  <span
+                    className={`text-sm ${
+                      checked ? "text-blue-900 font-medium" : "text-gray-700"
+                    }`}
+                  >
+                    {tpl.label}
+                  </span>
+                  {checked && (
+                    <CheckCircle className="h-4 w-4 text-blue-600 ml-auto" />
+                  )}
                 </label>
-              )
+              );
             })}
           </div>
 
@@ -345,36 +462,57 @@ function UserForm({ user, categoriasList, onClose, onSubmit, uploadAvatar }) {
             <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Shield className="h-4 w-4 text-blue-700" />
-                <span className="text-sm font-semibold text-blue-900">Categorias específicas</span>
+                <span className="text-sm font-semibold text-blue-900">
+                  Categorias específicas
+                </span>
                 {selectedCats.length > 0 && (
                   <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                     <CheckCircle className="h-3 w-3" />
-                    {selectedCats.length} selecionada{selectedCats.length !== 1 ? "s" : ""}
+                    {selectedCats.length} selecionada
+                    {selectedCats.length !== 1 ? "s" : ""}
                   </span>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {categoriasList.map((cat) => {
-                  const checked = selectedCats.includes(cat.cat_id)
+                  const checked = selectedCats.includes(cat.cat_id);
                   return (
                     <label
                       key={cat.cat_id}
                       className={`flex items-center gap-2 p-2 rounded border text-sm cursor-pointer ${
-                        checked ? "bg-blue-100 border-blue-300" : "bg-white border-gray-200 hover:bg-gray-50"
+                        checked
+                          ? "bg-blue-100 border-blue-300"
+                          : "bg-white border-gray-200 hover:bg-gray-50"
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => toggleCat(cat.cat_id)}
+                        onChange={() =>
+                          setSelectedCats((prev) =>
+                            prev.includes(cat.cat_id)
+                              ? prev.filter((x) => x !== cat.cat_id)
+                              : [...prev, cat.cat_id]
+                          )
+                        }
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
-                      <span className={checked ? "text-blue-900 font-medium" : "text-gray-700"}>{cat.cat_nome}</span>
+                      <span
+                        className={
+                          checked
+                            ? "text-blue-900 font-medium"
+                            : "text-gray-700"
+                        }
+                      >
+                        {cat.cat_nome}
+                      </span>
                     </label>
-                  )
+                  );
                 })}
                 {categoriasList.length === 0 && (
-                  <div className="col-span-full text-center text-gray-500 text-sm py-4">Sem categorias disponíveis</div>
+                  <div className="col-span-full text-center text-gray-500 text-sm py-4">
+                    Sem categorias disponíveis
+                  </div>
                 )}
               </div>
             </div>
@@ -389,63 +527,86 @@ function UserForm({ user, categoriasList, onClose, onSubmit, uploadAvatar }) {
           disabled={submitting || uploadingAvatar}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {isEdit ? "Atualizar" : "Criar utilizador"}
         </button>
-        <button type="button" onClick={onClose} className="inline-flex items-center gap-2 px-4 py-2 border rounded-md">
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center gap-2 px-4 py-2 border rounded-md"
+        >
           <X size={16} /> Cancelar
         </button>
       </div>
     </form>
-  )
+  );
 }
 
-/* ============ PÁGINA ============ */
+/* ========= Página ========= */
 export default function User() {
   const {
-    // perms
-    canView, canCreate, canEdit, canDelete,
-    // dados/ui
-    categoriasList, loading, showForm, setShowForm, editingUser, setEditingUser,
-    filter, setFilter, deleteLoading,
-    currentPage, setCurrentPage, usersPerPage, totalPages, currentUsers,
-    // ações
-    editarUsuario, handleDelete, uploadAvatar, saveUser,
-  } = useUser()
+    canView,
+    canCreate,
+    canEdit,
+    canDelete,
+    categoriasList,
+    loading,
+    error,
+    setError,
+    showForm,
+    setShowForm,
+    editingUser,
+    filter,
+    setFilter,
+    deleteLoading,
+    currentPage,
+    setCurrentPage,
+    usersPerPage,
+    totalPages,
+    currentUsers,
+    openCreate,
+    editarUsuario,
+    handleDelete,
+    uploadAvatar,
+    saveUser,
+  } = useUser();
 
-  // busca com debounce (evita re-render/consulta a cada tecla)
-  const [searchValue, setSearchValue] = useState(filter || "")
-  useEffect(() => setSearchValue(filter || ""), [filter])
+  const [searchValue, setSearchValue] = useState(filter || "");
+  useEffect(() => setSearchValue(filter || ""), [filter]);
   useEffect(() => {
-    const t = setTimeout(() => setFilter(searchValue), 250)
-    return () => clearTimeout(t)
-  }, [searchValue, setFilter])
+    const t = setTimeout(() => setFilter(searchValue), 250);
+    return () => clearTimeout(t);
+  }, [searchValue, setFilter]);
 
-  // modal de delete
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const openDelete = (u) => { setDeleteTarget(u); setDeleteOpen(true) }
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const openDelete = (u) => {
+    setDeleteTarget(u);
+    setDeleteOpen(true);
+  };
   const confirmDelete = async () => {
-    if (!deleteTarget) return
-    await handleDelete(deleteTarget.user_id)
-    setDeleteOpen(false)
-    setDeleteTarget(null)
-  }
+    if (!deleteTarget) return;
+    await handleDelete(deleteTarget.user_id);
+    setDeleteOpen(false);
+    setDeleteTarget(null);
+  };
 
   if (!canView) {
     return (
       <div className="container mx-auto p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
           <Shield className="h-5 w-5 text-red-600" />
-          <p className="text-red-800">Você não tem permissão para visualizar utilizadores.</p>
+          <p className="text-red-800">
+            Você não tem permissão para visualizar utilizadores.
+          </p>
         </div>
       </div>
-    )
+    );
   }
 
   return (
-    <div className="min-h-screen ">
-      <div className="container mx-auto  space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      <div className=" mx-auto  space-y-6">
         {/* Header */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -456,11 +617,13 @@ export default function User() {
                 </span>
                 Gestão de Utilizadores
               </h1>
-              <p className="text-gray-600 mt-2">Gerencie pessoas, permissões e acessos do sistema.</p>
+              <p className="text-gray-600 mt-2">
+                Gerencie pessoas, permissões e acessos do sistema.
+              </p>
             </div>
             {canCreate && (
               <button
-                onClick={() => { setEditingUser(null); setShowForm(true) }}
+                onClick={openCreate}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-white bg-blue-600 hover:bg-blue-700"
               >
                 <PlusCircle className="h-4 w-4" />
@@ -470,23 +633,34 @@ export default function User() {
           </div>
         </div>
 
-        {/* Toolbar de busca */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        {/* Busca + erros */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-3">
           <div className="relative">
             <Search className="absolute inset-y-0 left-3 my-auto h-5 w-5 text-gray-400" />
-            <label htmlFor="user-search" className="sr-only">Pesquisar utilizadores</label>
+            <label htmlFor="user-search" className="sr-only">
+              Pesquisar utilizadores
+            </label>
             <input
               id="user-search"
               type="text"
               value={searchValue}
-              onChange={(e)=> setSearchValue(e.target.value)}
+              onChange={(e) => setSearchValue(e.target.value)}
               placeholder="Pesquisar por nome ou email…"
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"
             />
           </div>
+
+          {error && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-800 px-3 py-2 text-sm">
+              {error}{" "}
+              <button onClick={() => setError(null)} className="underline ml-2">
+                Fechar
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Modal do Formulário */}
+        {/* Modal form */}
         <Modal
           open={showForm}
           onClose={() => setShowForm(false)}
@@ -506,9 +680,12 @@ export default function User() {
         {/* Tabela */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Utilizadores</h2>
+            <h2 className="text-lg font-semibold text-gray-900">
+              Utilizadores
+            </h2>
             <p className="text-sm text-gray-600 mt-1">
-              {currentUsers.length} registo{currentUsers.length !== 1 ? "s" : ""} nesta página
+              {currentUsers.length} registo
+              {currentUsers.length !== 1 ? "s" : ""} nesta página
             </p>
           </div>
 
@@ -522,17 +699,29 @@ export default function User() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Utilizador</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        #
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Utilizador
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Email
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Tipo
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Ações
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {currentUsers.map((u, index) => {
-                      const seq = (currentPage - 1) * usersPerPage + index + 1
+                      const seq = (currentPage - 1) * usersPerPage + index + 1;
                       return (
                         <tr key={u.user_id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -542,15 +731,23 @@ export default function User() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center">
-                              <Avatar src={u.avatar_url} name={u.user_nome} size="md" />
+                              <Avatar
+                                src={u.avatar_url || null}
+                                name={u.user_nome}
+                                size="md"
+                              />
                               <div className="ml-4">
-                                <div className="text-sm font-medium text-gray-900">{u.user_nome}</div>
-                                {Array.isArray(u.templates) && u.templates.length > 0 && (
-                                  <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                                    <Shield className="h-3 w-3" />
-                                    {u.templates.length} permissão{u.templates.length !== 1 ? "ões" : ""}
-                                  </div>
-                                )}
+                                <div className="text-sm font-medium text-gray-900">
+                                  {u.user_nome}
+                                </div>
+                                {Array.isArray(u.templates) &&
+                                  u.templates.length > 0 && (
+                                    <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                                      <Shield className="h-3 w-3" />
+                                      {u.templates.length} permissão
+                                      {u.templates.length !== 1 ? "ões" : ""}
+                                    </div>
+                                  )}
                               </div>
                             </div>
                           </td>
@@ -560,13 +757,17 @@ export default function User() {
                               {u.user_email}
                             </div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap"><RoleBadge tipo={u.user_tipo} /></td>
-                          <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={u.user_status} /></td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <RoleBadge tipo={u.user_tipo} />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <StatusBadge status={u.user_status} />
+                          </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <div className="flex justify-end gap-2">
                               {canEdit && (
                                 <button
-                                  onClick={() => editarUsuario(u) /* hook normalmente abre o form */}
+                                  onClick={() => editarUsuario(u)}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-700 hover:bg-blue-50"
                                   title="Editar utilizador"
                                   aria-label={`Editar ${u.user_nome}`}
@@ -583,14 +784,18 @@ export default function User() {
                                   title="Excluir utilizador"
                                   aria-label={`Excluir ${u.user_nome}`}
                                 >
-                                  {deleteLoading === u.user_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                  {deleteLoading === u.user_id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
                                   Excluir
                                 </button>
                               )}
                             </div>
                           </td>
                         </tr>
-                      )
+                      );
                     })}
                   </tbody>
                 </table>
@@ -601,14 +806,18 @@ export default function User() {
                     <div className="flex-1 flex justify-between sm:hidden">
                       <button
                         disabled={currentPage === 1}
-                        onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                        onClick={() =>
+                          setCurrentPage((p) => Math.max(p - 1, 1))
+                        }
                         className="px-4 py-2 border rounded disabled:opacity-50"
                       >
                         Anterior
                       </button>
                       <button
                         disabled={currentPage === totalPages}
-                        onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                        onClick={() =>
+                          setCurrentPage((p) => Math.min(p + 1, totalPages))
+                        }
                         className="px-4 py-2 border rounded disabled:opacity-50"
                       >
                         Próxima
@@ -616,12 +825,16 @@ export default function User() {
                     </div>
                     <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
                       <p className="text-sm text-gray-700">
-                        Página <span className="font-medium">{currentPage}</span> de <span className="font-medium">{totalPages}</span>
+                        Página{" "}
+                        <span className="font-medium">{currentPage}</span> de{" "}
+                        <span className="font-medium">{totalPages}</span>
                       </p>
                       <nav className="inline-flex rounded-md shadow-sm -space-x-px">
                         <button
                           disabled={currentPage === 1}
-                          onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                          onClick={() =>
+                            setCurrentPage((p) => Math.max(p - 1, 1))
+                          }
                           className="px-2 py-2 border rounded-l disabled:opacity-50"
                           title="Anterior"
                         >
@@ -629,7 +842,9 @@ export default function User() {
                         </button>
                         <button
                           disabled={currentPage === totalPages}
-                          onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                          onClick={() =>
+                            setCurrentPage((p) => Math.min(p + 1, totalPages))
+                          }
                           className="px-2 py-2 border rounded-r disabled:opacity-50"
                           title="Próxima"
                         >
@@ -641,7 +856,9 @@ export default function User() {
                 )}
               </>
             ) : (
-              <div className="p-12 text-center text-gray-600">Nenhum utilizador encontrado.</div>
+              <div className="p-12 text-center text-gray-600">
+                Nenhum utilizador encontrado.
+              </div>
             )}
           </div>
         </div>
@@ -650,11 +867,14 @@ export default function User() {
       {/* Modal de confirmação de exclusão */}
       <ConfirmDeleteModal
         open={deleteOpen}
-        onClose={() => { setDeleteOpen(false); setDeleteTarget(null) }}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteTarget(null);
+        }}
         onConfirm={confirmDelete}
         name={deleteTarget?.user_nome || ""}
         loading={deleteTarget ? deleteLoading === deleteTarget.user_id : false}
       />
     </div>
-  )
+  );
 }

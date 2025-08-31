@@ -329,7 +329,7 @@ export default function TypesPage() {
   return (
     <main className="min-h-screen space-y-6">
       {/* Header */}
-      <header className="rounded-xl p-6 bg-white border border-slate-200 flex items-center justify-between">
+      <header className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Shapes className="h-8 w-8 text-indigo-600" aria-hidden />
           <div>
@@ -353,7 +353,7 @@ export default function TypesPage() {
       </header>
 
       {/* Busca */}
-      <section className="rounded-xl p-4 bg-white border border-slate-200">
+      <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
           <label className="sr-only" htmlFor="buscar-tipos">Pesquisar tipos</label>
@@ -369,7 +369,7 @@ export default function TypesPage() {
       </section>
 
       {/* Tabela */}
-      <section className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+      <section className="bg-white rounded-lg shadow-sm border border-slate-200  overflow-hidden">
         {loading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-indigo-600" aria-label="Carregando tipos" />
@@ -378,7 +378,7 @@ export default function TypesPage() {
           <>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+                <thead className="bg-indigo-100">
                   <tr>
                     <th className="px-4 py-3 w-12" />
                     <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">#</th>

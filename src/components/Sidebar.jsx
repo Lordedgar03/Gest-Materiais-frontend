@@ -55,6 +55,11 @@ const templatePermissionsMap = {
     { module: "utilizador", action: "eliminar" },
     { module: "log", action: "visualizar" },
   ],
+  manage_bay: [
+    {module:"venda",action: "visualizar"},
+    {module:"venda",action: "criar"},
+    {module:"venda",action: "eliminar"}, 
+  ],
 };
 
 function getUserPermissionsFromToken() {
@@ -133,23 +138,6 @@ export default function Sidebar({ open, setOpen }) {
         
       ],
     },
-    {
-      title: "Relatórios",
-      items: [
-        {
-          path: "/relatorios",
-          icon: FileText,
-          label: "Relatórios",
-          permission: { module: "relatorios", action: "visualizar" },
-        },
-        {
-          path: "/recibos",
-          icon: Receipt,
-          label: "Recibos",
-          permission: { module: "recibo", action: "visualizar" },
-        },
-      ],
-    },
      {
       title: "Vendas",
       items: [
@@ -157,19 +145,19 @@ export default function Sidebar({ open, setOpen }) {
           path: "/vendas",
           icon: FileText,
           label: "Vendas",
-          permission: { module: "vendas", action: "visualizar" },
+          permission: { module: "venda", action: "visualizar" },
         },
         {
           path: "/caixa",
           icon: Receipt,
           label: "Caixa",
-          permission: { module: "Caixa", action: "visualizar" },
+          permission: { module: "venda", action: "visualizar" },
         },
         {
           path: "/pdv",
           icon: Receipt,
-          label: "Pdv",
-          permission: { module: "pdv", action: "visualizar" },
+          label: "Atendimento",
+          permission: { module: "venda", action: "visualizar" },
         },
       ],
     },
@@ -187,6 +175,24 @@ export default function Sidebar({ open, setOpen }) {
           icon: Recycle,
           label: "Reciclagem",
           permission: { module: "materiais", action: "eliminar" },
+        },
+      ],
+    },
+    
+    {
+      title: "Relatórios",
+      items: [
+        {
+          path: "/relatorios",
+          icon: FileText,
+          label: "Relatórios",
+          permission: { module: "relatorios", action: "visualizar" },
+        },
+        {
+          path: "/recibos",
+          icon: Receipt,
+          label: "Recibos",
+          permission: { module: "recibo", action: "visualizar" },
         },
       ],
     },

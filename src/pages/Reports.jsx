@@ -216,7 +216,7 @@ export default function Reports() {
 
   // ----------------------- render
   return (
-    <main className="min-h-screen dark:bg-gray-950 space-y-6" aria-labelledby="reports-title">
+    <main className="min-h-screen dark:bg-gray-950 space-y-6 " aria-labelledby="reports-title">
       <header className="rounded-xl bg-white backdrop-blur border border-gray-300 p-6 dark:border-white/10 flex items-center justify-between">
         <h1 id="reports-title" className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-gray-100">
           Relatórios de Movimentações
@@ -233,7 +233,7 @@ export default function Reports() {
       </header>
 
       {/* filtros */}
-      <section className="rounded-xl p-4 bg-white/80 dark:bg-gray-900/70 backdrop-blur border border-gray-100 dark:border-white/10" aria-labelledby="filters-title">
+      <section className="rounded-xl p-4 bg-white/80 dark:bg-gray-900/70 backdrop-blur border border-gray-300 dark:border-white/10" aria-labelledby="filters-title">
         <h2 id="filters-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">Filtros</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
@@ -363,7 +363,7 @@ export default function Reports() {
       </section>
 
       {/* tabela */}
-      <section className="rounded-xl bg-white/80 dark:bg-gray-900/70 border border-gray-100 dark:border-white/10 overflow-hidden">
+      <section className="rounded-xl bg-white/80 dark:bg-gray-900/70 border border-gray-300 dark:border-white/10 overflow-hidden">
         {loading ? (
           <div className="p-8 flex items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
@@ -377,12 +377,12 @@ export default function Reports() {
           <div className="p-8 text-center text-gray-700 dark:text-gray-300">Nenhum resultado para os filtros atuais.</div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
+            <div className="overflow-x-auto ">
+              <table className="min-w-full text-sm ">
                 <caption className="sr-only">
                   Tabela de movimentos filtrados com paginação
                 </caption>
-                <thead className="bg-gray-50/70 dark:bg-gray-800/60">
+                <thead className="bg-gray-100/70 dark:bg-gray-800/60 border-gray-300">
                   <tr>
                     <Th> Código </Th>
                     <Th> Data </Th>
@@ -421,7 +421,7 @@ export default function Reports() {
 
             {/* paginação */}
             {totalPages > 1 && (
-              <nav className="bg-gray-50/70 dark:bg-gray-800/60 px-4 py-3 flex items-center justify-between border-t border-gray-100 dark:border-gray-800" aria-label="Paginação de resultados">
+              <nav className="bg-gray-50/70 dark:bg-gray-800/60 px-4 py-3 flex items-center justify-between border-t border-gray-300 dark:border-gray-800" aria-label="Paginação de resultados">
                 <button
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
@@ -446,7 +446,7 @@ export default function Reports() {
       </section>
 
       {/* resumo rápido */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" aria-label="Resumo">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4  " aria-label="Resumo">
         <KPI label="Entradas (Qtd.)" value={summary.entradasQtd} />
         <KPI label="Saídas (Qtd.)" value={summary.saidasQtd} />
         <KPI label="Entradas (€)" value={summary.entradas.toFixed(2)} />

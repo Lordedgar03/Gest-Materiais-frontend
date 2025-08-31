@@ -1,65 +1,11 @@
-// src/pages/Vendas.jsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import api from "../api"; // usa o mesmo axios com interceptors
+import React from "react";
+import { useVendas } from "../hooks/useVendas";
 import {
   Receipt, Search, Filter, ChevronDown, ChevronUp, Eye, RotateCcw, XCircle,
   FileSpreadsheet, X, ShieldAlert
 } from "lucide-react";
-
-/* ================= helpers: JWT & permissão ================= */
-function parseJwt(token) {
-  try {
-    const base64 = token.split(".")[1];
-    const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(json);
-  } catch {
-    return {};
-  }
-}
-
-/** true se for admin OU possuir manage_sales (em permissions/perms/scopes OU em templates) */
-function hasManageSales(decoded) {
-  if (!decoded) return false;
-
-  // Admin (igual ao materials)
-  const roles = decoded.roles || [];
-  if (decoded.is_admin === true || roles.includes("admin")) return true;
-
-  // 1) arrays de permissões tradicionais
-  const rawPerms = []
-    .concat(decoded.permissions || [])
-    .concat(decoded.perms || [])
-    .concat(decoded.scopes || [])
-    .concat(decoded.actions || [])
-    .concat(decoded.allowed || []);
-
-  const normPerms = new Set(
-    rawPerms
-      .map((p) => {
-        if (typeof p === "string") return p.toLowerCase();
-        if (p && typeof p === "object") {
-          // cobre formatos {name},{code},{action_code}...
-          const cand = p.code || p.name || p.action_code || p.actionCode || p.permission;
-          return cand ? String(cand).toLowerCase() : "";
-        }
-        return "";
-      })
-      .filter(Boolean)
-  );
-  if (normPerms.has("manage_sales")) return true;
-
-  // 2) via templates (mesma ideia do materials)
-  const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
-  const hasTemplate = templates.some((t) => {
-    const cand =
-      t?.template_code || t?.code || t?.name || t?.permission || t?.action_code || t?.actionCode;
-    return String(cand || "").toLowerCase() === "manage_sales";
-  });
-
-  return hasTemplate;
-}
 
 /* ================= UI: Modal ================= */
 function Modal({ open, title, onClose, children, footer }) {
@@ -85,109 +31,20 @@ function Modal({ open, title, onClose, children, footer }) {
 
 /* ================= Página ================= */
 export default function Vendas() {
-  /** --------- GATE de permissões (mesma abordagem do materials) ---------- */
-  const decodedRef = useRef(null);
-  if (!decodedRef.current && typeof window !== "undefined") {
-    const token = localStorage.getItem("token");
-    decodedRef.current = token ? parseJwt(token) : {};
-  }
-  const decoded = decodedRef.current || {};
-  const allowed = hasManageSales(decoded);
-
-  /** --------- estados de listagem --------- */
-  const [list, setList] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const [showFilters, setShowFilters] = useState(false);
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("Todos");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [page, setPage] = useState(1);
-  const perPage = 8;
-
-  // modais
-  const [viewOpen, setViewOpen] = useState(false);
-  const [viewSale, setViewSale] = useState(null);
-  const [reasonOpen, setReasonOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [actionType, setActionType] = useState(null); // "estorno" | "cancelar"
-
-  /** --------- carga inicial apenas se permitido --------- */
-  useEffect(() => {
-    if (!allowed) {
-      setLoading(false);
-      return;
-    }
-    loadList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowed]);
-
-  const loadList = async () => {
-    setLoading(true);
-    try {
-      const params = {};
-      if (q) params.q = q;
-      if (status !== "Todos") params.status = status;
-      if (from) params.from = from;
-      if (to) params.to = to;
-      const r = await api.get("/vendas", { params });
-      setList(Array.isArray(r.data) ? r.data : (r.data?.data ?? []));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { setPage(1); }, [q, status, from, to]);
-  const onApplyFilters = () => loadList();
-
-  const filtered = useMemo(() => list, [list]);
-  const pages = Math.max(1, Math.ceil(filtered.length / perPage));
-  const current = filtered.slice((page - 1) * perPage, page * perPage);
-
-  const fmt = (n) => (Number(n || 0)).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
-
-  const openView = async (sale) => {
-    const r = await api.get(`/vendas/${sale.ven_id}`);
-    setViewSale(r.data || sale);
-    setViewOpen(true);
-  };
-  const openReason = (sale, type) => { setViewSale(sale); setActionType(type); setReason(""); setReasonOpen(true); };
-
-  const applyAction = async () => {
-    if (!viewSale) return;
-    if (actionType === "estorno") {
-      await api.post(`/vendas/${viewSale.ven_id}/estornar`, { motivo: reason || null });
-    } else {
-      await api.post(`/vendas/${viewSale.ven_id}/cancelar`, { motivo: reason || null });
-    }
-    setReasonOpen(false);
-    setViewSale(null);
-    setActionType(null);
-    await loadList();
-  };
-
-  const exportXlsx = async () => {
-    const rows = filtered.map((s) => ({
-      Código: s.ven_codigo,
-      Data: new Date(s.ven_data).toLocaleString("pt-PT"),
-      Cliente: s.ven_cliente_nome,
-      Subtotal: Number(s.ven_subtotal || 0),
-      Desconto: Number(s.ven_desconto || 0),
-      Total: Number(s.ven_total || 0),
-      Status: s.ven_status,
-    }));
-    try {
-      const XLSX = await import("xlsx"); // precisa do pacote xlsx
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, "Vendas");
-      XLSX.writeFile(wb, `vendas_${Date.now()}.xlsx`);
-    } catch (err) {
-      console.error(err);
-      alert("Falha ao exportar. Verifique se xlsx está instalado.");
-    }
-  };
+  const {
+    allowed, loading, filtered, current,
+    // filtros
+    showFilters, setShowFilters, q, setQ, status, setStatus, from, setFrom, to, setTo,
+    // paginação
+    page, setPage, perPage, setPerPage, pages,
+    // ações
+    onApplyFilters, clearFilters, fmt,
+    // detalhes / ações
+    viewOpen, setViewOpen, viewSale, openView,
+    reasonOpen, setReasonOpen, reason, setReason, actionType, openReason, applyAction,
+    // export
+    exportXlsx,
+  } = useVendas();
 
   /* --------- Gate visual --------- */
   if (!allowed) {
@@ -217,7 +74,10 @@ export default function Vendas() {
             <p className="text-gray-600">Histórico de vendas com filtros e exportação</p>
           </div>
         </div>
-        <button onClick={exportXlsx} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
+        <button
+          onClick={exportXlsx}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+        >
           <FileSpreadsheet size={18} /> Exportar Excel
         </button>
       </header>
@@ -227,8 +87,11 @@ export default function Vendas() {
           <div className="relative w-full md:w-72">
             <Search size={16} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
-              value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar por código ou cliente…"
-              className="w-full pl-8 pr-3 py-2 border rounded-lg" aria-label="Pesquisar vendas"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Pesquisar por código ou cliente…"
+              className="w-full pl-8 pr-3 py-2 border rounded-lg"
+              aria-label="Pesquisar vendas"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -239,28 +102,58 @@ export default function Vendas() {
             >
               <Filter size={16} /> Filtros {showFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
-            <button onClick={onApplyFilters} className="px-3 py-2 rounded-lg bg-indigo-600 text-white">Aplicar</button>
+            <button onClick={onApplyFilters} className="px-3 py-2 rounded-lg bg-indigo-600 text-white">
+              Aplicar
+            </button>
           </div>
         </div>
 
         {showFilters && (
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
               <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full border rounded-lg px-3 py-2">
-                {["Todos", "Paga", "Cancelada", "Estornada"].map((s) => <option key={s}>{s}</option>)}
+                {["Todos", "Paga", "Cancelada", "Estornada"].map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">De</label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Até</label>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-full border rounded-lg px-3 py-2" />
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2"
+              />
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Itens/página</label>
+              <select
+                value={perPage}
+                onChange={(e) => setPerPage(Number(e.target.value))}
+                className="w-full border rounded-lg px-3 py-2"
+              >
+                {[8, 16, 32, 64].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-end">
-              <button onClick={() => { setStatus("Todos"); setFrom(""); setTo(""); setQ(""); loadList(); }} className="w-full px-3 py-2 rounded-lg border">
+              <button onClick={clearFilters} className="w-full px-3 py-2 rounded-lg border">
                 Limpar filtros
               </button>
             </div>
@@ -306,10 +199,16 @@ export default function Vendas() {
                           </button>
                           {s.ven_status === "Paga" && (
                             <>
-                              <button onClick={() => openReason(s, "estorno")} className="px-3 py-1.5 rounded-lg border inline-flex items-center gap-2">
+                              <button
+                                onClick={() => openReason(s, "estorno")}
+                                className="px-3 py-1.5 rounded-lg border inline-flex items-center gap-2"
+                              >
                                 <RotateCcw size={16} /> Estornar
                               </button>
-                              <button onClick={() => openReason(s, "cancelar")} className="px-3 py-1.5 rounded-lg border inline-flex items-center gap-2">
+                              <button
+                                onClick={() => openReason(s, "cancelar")}
+                                className="px-3 py-1.5 rounded-lg border inline-flex items-center gap-2"
+                              >
                                 <XCircle size={16} /> Cancelar
                               </button>
                             </>
@@ -325,12 +224,27 @@ export default function Vendas() {
             {/* paginação simples */}
             <div className="bg-white px-4 py-3 border-t border-gray-200 flex items-center justify-between">
               <p className="text-sm text-gray-700">
-                Mostrando <b>{(page - 1) * perPage + 1}</b>–<b>{Math.min(page * perPage, filtered.length)}</b> de <b>{filtered.length}</b>
+                Mostrando <b>{(page - 1) * perPage + 1}</b>–<b>{Math.min(page * perPage, filtered.length)}</b> de{" "}
+                <b>{filtered.length}</b>
               </p>
               <div className="flex items-center gap-2">
-                <button disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1.5 rounded border disabled:opacity-50">Anterior</button>
-                <span className="text-sm">{page} / {pages}</span>
-                <button disabled={page === pages} onClick={() => setPage((p) => Math.min(pages, p + 1))} className="px-3 py-1.5 rounded border disabled:opacity-50">Próxima</button>
+                <button
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 rounded border disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <span className="text-sm">
+                  {page} / {pages}
+                </span>
+                <button
+                  disabled={page === pages}
+                  onClick={() => setPage((p) => Math.min(pages, p + 1))}
+                  className="px-3 py-1.5 rounded border disabled:opacity-50"
+                >
+                  Próxima
+                </button>
               </div>
             </div>
           </>
@@ -342,9 +256,18 @@ export default function Vendas() {
         {viewSale && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-gray-600">Cliente</span><div className="font-medium">{viewSale.ven_cliente_nome}</div></div>
-              <div><span className="text-gray-600">Data</span><div className="font-medium">{new Date(viewSale.ven_data).toLocaleString("pt-PT")}</div></div>
-              <div><span className="text-gray-600">Status</span><div className="font-medium">{viewSale.ven_status}</div></div>
+              <div>
+                <span className="text-gray-600">Cliente</span>
+                <div className="font-medium">{viewSale.ven_cliente_nome}</div>
+              </div>
+              <div>
+                <span className="text-gray-600">Data</span>
+                <div className="font-medium">{new Date(viewSale.ven_data).toLocaleString("pt-PT")}</div>
+              </div>
+              <div>
+                <span className="text-gray-600">Status</span>
+                <div className="font-medium">{viewSale.ven_status}</div>
+              </div>
             </div>
 
             <div className="rounded-lg border">
@@ -363,7 +286,9 @@ export default function Vendas() {
                       <td className="px-3 py-2">{it.nome || it.vni_material_nome || it.material_nome}</td>
                       <td className="px-3 py-2">{fmt(it.vni_preco_unit ?? it.preco_unit ?? it.preco)}</td>
                       <td className="px-3 py-2">{it.vni_qtd ?? it.qtd}</td>
-                      <td className="px-3 py-2">{fmt((it.vni_preco_unit ?? it.preco_unit ?? it.preco) * (it.vni_qtd ?? it.qtd))}</td>
+                      <td className="px-3 py-2">
+                        {fmt((it.vni_preco_unit ?? it.preco_unit ?? it.preco) * (it.vni_qtd ?? it.qtd))}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -372,9 +297,18 @@ export default function Vendas() {
 
             <div className="flex justify-end text-sm">
               <div className="w-full sm:w-80">
-                <div className="flex justify-between"><span>Subtotal</span><b>{fmt(viewSale.ven_subtotal)}</b></div>
-                <div className="flex justify-between text-amber-700"><span>Desconto</span><b>- {fmt(viewSale.ven_desconto)}</b></div>
-                <div className="flex justify-between border-t pt-2 text-base"><span>Total</span><b>{fmt(viewSale.ven_total)}</b></div>
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <b>{fmt(viewSale.ven_subtotal)}</b>
+                </div>
+                <div className="flex justify-between text-amber-700">
+                  <span>Desconto</span>
+                  <b>- {fmt(viewSale.ven_desconto)}</b>
+                </div>
+                <div className="flex justify-between border-t pt-2 text-base">
+                  <span>Total</span>
+                  <b>{fmt(viewSale.ven_total)}</b>
+                </div>
               </div>
             </div>
           </div>
@@ -388,7 +322,9 @@ export default function Vendas() {
         title={actionType === "estorno" ? "Estornar venda" : "Cancelar venda"}
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setReasonOpen(false)} className="px-4 py-2 rounded border">Fechar</button>
+            <button onClick={() => setReasonOpen(false)} className="px-4 py-2 rounded border">
+              Fechar
+            </button>
             <button onClick={applyAction} className="px-4 py-2 rounded bg-rose-600 text-white">
               Confirmar
             </button>
@@ -396,7 +332,13 @@ export default function Vendas() {
         }
       >
         <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
-        <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className="w-full border rounded-lg px-3 py-2" placeholder="Descreva o motivo…" />
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          className="w-full border rounded-lg px-3 py-2"
+          placeholder="Descreva o motivo…"
+        />
       </Modal>
     </main>
   );

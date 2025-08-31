@@ -1,81 +1,32 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import api from "../api"; // axios com interceptors (token) e baseURL http://localhost:3000/api
+import React from "react";
 import {
-  ShoppingCart, PlusCircle, X, Trash2, CreditCard, CheckCircle2, Lock, Loader2, Package, ArrowRight,
-  Search, Percent, BadgeDollarSign, Minus, Plus, ShieldAlert
+  ShoppingCart, PlusCircle, X, Trash2, CreditCard, CheckCircle2, Lock, Loader2,
+  Package, ArrowRight, Search, Percent, BadgeDollarSign, Minus, Plus, ShieldAlert
 } from "lucide-react";
+import { usePDV } from "../hooks/usePDV";
 
-/* ===== helpers ===== */
-const fmt = (n) => (Number(n || 0)).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
-
-// Decodifica JWT simples (igual ao padrão que você já usa)
-function parseJwt(token) {
-  try {
-    const base64 = token.split(".")[1];
-    const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(json);
-  } catch {
-    return {};
-  }
-}
-
-/** true se for admin OU possuir manage_sales (em permissions/perms/scopes OU em templates) */
-function hasManageSales(decoded) {
-  if (!decoded) return false;
-
-  const roles = decoded.roles || [];
-  if (decoded.is_admin === true || roles.includes("admin")) return true;
-
-  const rawPerms = []
-    .concat(decoded.permissions || [])
-    .concat(decoded.perms || [])
-    .concat(decoded.scopes || [])
-    .concat(decoded.actions || [])
-    .concat(decoded.allowed || []);
-
-  const normPerms = new Set(
-    rawPerms
-      .map((p) => {
-        if (typeof p === "string") return p.toLowerCase();
-        if (p && typeof p === "object") {
-          const cand = p.code || p.name || p.action_code || p.actionCode || p.permission;
-          return cand ? String(cand).toLowerCase() : "";
-        }
-        return "";
-      })
-      .filter(Boolean)
-  );
-  if (normPerms.has("manage_sales")) return true;
-
-  const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
-  const hasTemplate = templates.some((t) => {
-    const cand = t?.template_code || t?.code || t?.name || t?.permission || t?.action_code || t?.actionCode;
-    return String(cand || "").toLowerCase() === "manage_sales";
-  });
-
-  return hasTemplate;
-}
-
-/* ===== Modal ===== */
+/* ===== Modal (UI-only) ===== */
 function Modal({ open, title, onClose, children, footer }) {
-  const ref = useRef(null);
-  useEffect(() => {
+  React.useEffect(() => {
     if (!open) return;
     const onKey = (e) => e.key === "Escape" && onClose?.();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div ref={ref} className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-gray-200">
+        <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-gray-200">
           <div className="flex items-center justify-between p-4 border-b">
             <h3 className="text-lg font-semibold">{title}</h3>
-            <button onClick={onClose} className="p-2 rounded hover:bg-gray-100" aria-label="Fechar"><X size={18} /></button>
+            <button onClick={onClose} className="p-2 rounded hover:bg-gray-100" aria-label="Fechar">
+              <X size={18} />
+            </button>
           </div>
           <div className="p-4">{children}</div>
           {footer && <div className="p-4 border-t">{footer}</div>}
@@ -85,7 +36,7 @@ function Modal({ open, title, onClose, children, footer }) {
   );
 }
 
-/* ===== Toast ===== */
+/* ===== Toast (UI-only) ===== */
 function Toast({ msg, tone = "ok", onClose }) {
   if (!msg) return null;
   const toneCls = tone === "error" ? "bg-rose-600" : "bg-gray-900";
@@ -94,131 +45,38 @@ function Toast({ msg, tone = "ok", onClose }) {
       <div className={`flex items-start gap-3 rounded-xl ${toneCls} text-white px-4 py-3 shadow-xl`}>
         <CheckCircle2 className="mt-0.5 text-emerald-300" />
         <div className="text-sm">{msg}</div>
-        <button onClick={onClose} className="ml-2 opacity-80 hover:opacity-100" aria-label="Fechar">✕</button>
+        <button onClick={onClose} className="ml-2 opacity-80 hover:opacity-100" aria-label="Fechar">
+          ✕
+        </button>
       </div>
     </div>
   );
 }
 
+/* ===== Página ===== */
 export default function PDV() {
-  /** ===== Gate de permissão (admin/manage_sales) ===== */
-  const decodedRef = useRef(null);
-  if (!decodedRef.current && typeof window !== "undefined") {
-    const token = localStorage.getItem("token");
-    decodedRef.current = token ? parseJwt(token) : {};
-  }
-  const allowed = hasManageSales(decodedRef.current || {});
-
-  const [materials, setMaterials] = useState([]);
-  const [catalogQ, setCatalogQ] = useState("");
-  const [cart, setCart] = useState([]);
-  const [customer, setCustomer] = useState("");
-  const [discount, setDiscount] = useState(0);
-  const [discountMode, setDiscountMode] = useState("valor"); // "valor" | "percent"
-  const [payOpen, setPayOpen] = useState(false);
-  const [payMethod, setPayMethod] = useState("Dinheiro"); // (opcional – hoje não vai ao back)
-  const [loading, setLoading] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [toast, setToast] = useState("");
-  const [toastTone, setToastTone] = useState("ok");
-  const [caixa, setCaixa] = useState(null); // objeto do caixa de hoje (ou null)
-  const [loadingBoot, setLoadingBoot] = useState(true);
-
-  /* boot: materiais + status do caixa (só se permitido) */
-  useEffect(() => {
-    (async () => {
-      if (!allowed) { setLoadingBoot(false); return; }
-      try {
-        const mats = await api.get("/materiais");
-        const vendaveis = (mats?.data || [])
-          .filter((m) => m.mat_status === "ativo" && m.mat_vendavel === "SIM")
-          .map((m) => ({ id: m.mat_id, nome: m.mat_nome, preco: Number(m.mat_preco || 0) }));
-        setMaterials(vendaveis);
-
-        const cx = await api.get("/caixas/aberto").then(r => r.data).catch(() => null);
-        setCaixa(cx || null);
-      } catch (err) {
-        console.error(err);
-        setToast("Falha ao carregar dados iniciais.");
-        setToastTone("error");
-      } finally {
-        setLoadingBoot(false);
-      }
-    })();
-  }, [allowed]);
-
-  const caixaAberto = caixa?.cx_status === "Aberto";
-  const subtotal = useMemo(() => cart.reduce((a, it) => a + it.preco * it.qtd, 0), [cart]);
-  const discountValue = useMemo(() => {
-    if (discountMode === "percent") return Math.min(subtotal, (Number(discount || 0) / 100) * subtotal);
-    return Math.min(subtotal, Number(discount || 0));
-  }, [discount, discountMode, subtotal]);
-  const total = useMemo(() => Math.max(0, Number(subtotal) - Number(discountValue || 0)), [subtotal, discountValue]);
-
-  const catalog = useMemo(
-    () => materials.filter(m => (m.nome + String(m.preco)).toLowerCase().includes(catalogQ.toLowerCase())),
-    [materials, catalogQ]
-  );
-
-  const addItem = (mat) => {
-    setCart((c) => {
-      const i = c.findIndex((x) => x.id === mat.id);
-      if (i >= 0) {
-        const copy = [...c];
-        copy[i] = { ...copy[i], qtd: copy[i].qtd + 1 };
-        return copy;
-      }
-      return [...c, { id: mat.id, nome: mat.nome, preco: Number(mat.preco), qtd: 1 }];
-    });
-    setAddOpen(false);
-  };
-  const inc = (id) => setCart(c => c.map(it => it.id === id ? { ...it, qtd: it.qtd + 1 } : it));
-  const dec = (id) => setCart(c => c.map(it => it.id === id ? { ...it, qtd: Math.max(1, it.qtd - 1) } : it));
-  const updateQty = (id, qtd) => setCart((c) => c.map((it) => (it.id === id ? { ...it, qtd: Math.max(1, Number(qtd || 1)) } : it)));
-  const removeItem = (id) => setCart((c) => c.filter((it) => it.id !== id));
-  const clearSale = () => { setCart([]); setCustomer(""); setDiscount(0); setDiscountMode("valor"); };
-
-  const checkout = async () => {
-    if (!caixaAberto) {
-      setToast("Abra o caixa do dia para registrar vendas.");
-      setToastTone("error");
-      return;
-    }
-    if (cart.length === 0) return;
-    setLoading(true);
-    try {
-      const cliente = (customer || "").trim() || "Cliente";
-      const created = await api.post("/vendas", { ven_cliente_nome: cliente });
-      const venda = created?.data?.data || created?.data;
-      if (!venda?.ven_id) throw new Error("Falha ao abrir venda.");
-
-      for (const it of cart) {
-        await api.post(`/vendas/${venda.ven_id}/itens`, {
-          material_id: it.id,
-          quantidade: it.qtd
-        });
-      }
-
-      const descontoValor = Number(discountValue || 0);
-      if (descontoValor > 0) {
-        await api.post(`/vendas/${venda.ven_id}/desconto`, { desconto: descontoValor });
-      }
-
-      await api.post(`/vendas/${venda.ven_id}/pagar`);
-
-      setPayOpen(false);
-      clearSale();
-      setToast("Venda registrada com sucesso!");
-      setToastTone("ok");
-    } catch (err) {
-      console.error(err);
-      const msg = err?.response?.data?.message || err?.message || "Falha ao concluir venda.";
-      setToast(msg);
-      setToastTone("error");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    // gate/boot
+    allowed, loadingBoot,
+    // estado base
+    // eslint-disable-next-line no-unused-vars
+    materials, catalogQ, setCatalogQ, cart, setCart,
+    customer, setCustomer, discount, setDiscount, discountMode, setDiscountMode,
+    // modais
+    payOpen, setPayOpen, addOpen, setAddOpen, payMethod, setPayMethod,
+    // caixa
+    caixaAberto,
+    // derivados
+    subtotal, discountValue, total, catalog,
+    // ações carrinho
+    addItem, inc, dec, updateQty, removeItem, clearSale,
+    // checkout
+    loading, checkout,
+    // toast
+    toast, toastTone, setToast,
+    // utils
+    fmt,
+  } = usePDV();
 
   if (loadingBoot) {
     return (
@@ -276,10 +134,16 @@ export default function PDV() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Carrinho</h2>
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={() => setAddOpen(true)} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white">
+              <button
+                onClick={() => setAddOpen(true)}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
                 <PlusCircle size={18} /> Adicionar item
               </button>
-              <button onClick={clearSale} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border">
+              <button
+                onClick={clearSale}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border"
+              >
                 <Trash2 size={18} /> Limpar
               </button>
             </div>
@@ -309,19 +173,37 @@ export default function PDV() {
                       <Td>{fmt(it.preco)}</Td>
                       <Td>
                         <div className="inline-flex items-center rounded-lg border">
-                          <button onClick={() => dec(it.id)} className="p-1.5 hover:bg-gray-50" aria-label={`Diminuir ${it.nome}`}><Minus size={14} /></button>
+                          <button
+                            onClick={() => dec(it.id)}
+                            className="p-1.5 hover:bg-gray-50"
+                            aria-label={`Diminuir ${it.nome}`}
+                          >
+                            <Minus size={14} />
+                          </button>
                           <input
-                            type="number" min="1" value={it.qtd}
+                            type="number"
+                            min="1"
+                            value={it.qtd}
                             onChange={(e) => updateQty(it.id, e.target.value)}
                             className="w-16 text-center px-1 py-1 outline-none"
                             aria-label={`Quantidade de ${it.nome}`}
                           />
-                          <button onClick={() => inc(it.id)} className="p-1.5 hover:bg-gray-50" aria-label={`Aumentar ${it.nome}`}><Plus size={14} /></button>
+                          <button
+                            onClick={() => inc(it.id)}
+                            className="p-1.5 hover:bg-gray-50"
+                            aria-label={`Aumentar ${it.nome}`}
+                          >
+                            <Plus size={14} />
+                          </button>
                         </div>
                       </Td>
                       <Td className="font-medium">{fmt(it.preco * it.qtd)}</Td>
                       <Td className="text-right">
-                        <button onClick={() => removeItem(it.id)} className="p-2 rounded hover:bg-gray-100 text-rose-600" aria-label={`Remover ${it.nome}`}>
+                        <button
+                          onClick={() => removeItem(it.id)}
+                          className="p-2 rounded hover:bg-gray-100 text-rose-600"
+                          aria-label={`Remover ${it.nome}`}
+                        >
                           <X size={16} />
                         </button>
                       </Td>
@@ -339,8 +221,11 @@ export default function PDV() {
 
           <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
           <input
-            type="text" value={customer} onChange={(e) => setCustomer(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 mb-4" placeholder="Nome (opcional)"
+            type="text"
+            value={customer}
+            onChange={(e) => setCustomer(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 mb-4"
+            placeholder="Nome (opcional)"
           />
 
           <div className="space-y-2 mb-4 text-sm">
@@ -351,12 +236,19 @@ export default function PDV() {
                 Desconto
               </div>
               <div className="flex items-center gap-2">
-                <select value={discountMode} onChange={(e) => setDiscountMode(e.target.value)} className="border rounded-lg px-2 py-1 text-xs">
+                <select
+                  value={discountMode}
+                  onChange={(e) => setDiscountMode(e.target.value)}
+                  className="border rounded-lg px-2 py-1 text-xs"
+                >
                   <option value="valor">€</option>
                   <option value="percent">%</option>
                 </select>
                 <input
-                  type="number" step="0.01" min="0" value={discount}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={discount}
                   onChange={(e) => setDiscount(e.target.value)}
                   className="w-24 border rounded px-2 py-1 text-right"
                   aria-label="Valor de desconto"
@@ -383,7 +275,8 @@ export default function PDV() {
         <div className="relative mb-3">
           <Search size={16} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
-            value={catalogQ} onChange={(e) => setCatalogQ(e.target.value)}
+            value={catalogQ}
+            onChange={(e) => setCatalogQ(e.target.value)}
             placeholder="Pesquisar produto…"
             className="w-full pl-8 pr-3 py-2 border rounded-lg"
           />
@@ -411,12 +304,24 @@ export default function PDV() {
       <Modal
         open={payOpen}
         onClose={() => setPayOpen(false)}
-        title={<span className="inline-flex items-center gap-2"><CreditCard className="text-emerald-600" /> Pagamento</span>}
+        title={
+          <span className="inline-flex items-center gap-2">
+            <CreditCard className="text-emerald-600" /> Pagamento
+          </span>
+        }
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setPayOpen(false)} className="px-4 py-2 rounded-lg border">Cancelar</button>
+            <button onClick={() => setPayOpen(false)} className="px-4 py-2 rounded-lg border">
+              Cancelar
+            </button>
             <button onClick={checkout} className="px-4 py-2 rounded-lg bg-emerald-600 text-white">
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} /> Confirmar</span>}
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <CheckCircle2 size={16} /> Confirmar
+                </span>
+              )}
             </button>
           </div>
         }
@@ -427,7 +332,11 @@ export default function PDV() {
           <Row label="Total" value={fmt(total)} bold />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Forma de pagamento</label>
-            <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} className="w-full border rounded-lg px-3 py-2">
+            <select
+              value={payMethod}
+              onChange={(e) => setPayMethod(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+            >
               <option>Dinheiro</option>
               <option>Multibanco</option>
               <option>MB Way</option>
@@ -443,12 +352,24 @@ export default function PDV() {
   );
 }
 
-/* small bits */
-function Th({ children }) { return <th className="px-3 py-2 text-left font-semibold text-gray-600 uppercase text-xs">{children}</th>; }
-function Td({ children, className = "" }) { return <td className={`px-3 py-2 ${className}`}>{children}</td>; }
+/* pequenos helpers visuais */
+function Th({ children }) {
+  return (
+    <th className="px-3 py-2 text-left font-semibold text-gray-600 uppercase text-xs">
+      {children}
+    </th>
+  );
+}
+function Td({ children, className = "" }) {
+  return <td className={`px-3 py-2 ${className}`}>{children}</td>;
+}
 function Row({ label, value, bold = false, className = "" }) {
   return (
-    <div className={`flex items-center justify-between ${bold ? "font-semibold text-base" : "text-sm"} ${className}`}>
+    <div
+      className={`flex items-center justify-between ${
+        bold ? "font-semibold text-base" : "text-sm"
+      } ${className}`}
+    >
       <span className="text-gray-600">{label}</span>
       <span>{value}</span>
     </div>
