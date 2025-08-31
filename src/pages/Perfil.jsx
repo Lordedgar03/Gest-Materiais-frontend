@@ -1,402 +1,368 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import {
-  User, Mail, Shield, CheckCircle, AlertCircle, LogOut, Copy, Check, Info, KeyRound, Calendar,
-  Timer, Eye, X, Download
-} from "lucide-react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { jwtDecode } from "jwt-decode"
+import {
+  UserCircle2, Camera, Loader2, Mail, Shield, Lock, CheckCircle2, XCircle, RefreshCw
+} from "lucide-react"
+import api from "../api"
 
-/* ---------- helpers ---------- */
-const safeDecode = (token) => {
-  try { return jwtDecode(token) } catch { return null }
-}
-const initials = (name = "") =>
-  name.trim().split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase() || "").join("") || "?"
-
-const formatDt = (sec) => {
-  if (!sec) return "—"
-  try { return new Date(sec * 1000).toLocaleString() } catch { return "—" }
-}
-
-const TEMPLATE_LABELS = {
-  // personalize aqui conforme seu backend
-  manage_category: "Gerir Categorias",
-  view_categories: "Ver Categorias",
-  create_category: "Criar Categoria",
-  edit_category: "Editar Categoria",
-  delete_category: "Excluir Categoria",
-  manage_type: "Gerir Tipos",
-  manage_material: "Gerir Materiais",
-  create_requisicao: "Criar Requisição",
-  decide_requisicao: "Decidir Requisição",
-  reports_export: "Exportar Relatórios",
-}
-
-/* ---------- UI bits ---------- */
-function Toast({ msg, onClose }) {
-  if (!msg) return null
-  return (
-    <div className="fixed bottom-6 right-6 z-50" role="status" aria-live="polite">
-      <div className="flex items-start gap-3 rounded-xl bg-gray-900 text-white px-4 py-3 shadow-xl">
-        <CheckCircle className="mt-0.5 text-emerald-400" aria-hidden />
-        <div className="text-sm">{msg}</div>
-        <button onClick={onClose} className="ml-2 opacity-80 hover:opacity-100" aria-label="Fechar notificação">✕</button>
-      </div>
-    </div>
-  )
-}
-
-function Modal({ open, title, onClose, children, footer }) {
-  const titleId = "modal-" + title
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e) => e.key === "Escape" && onClose?.()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [open, onClose])
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-gray-200">
-          <div className="flex items-center justify-between p-4 border-b">
-            <h3 id={titleId} className="text-lg font-semibold">{title}</h3>
-            <button onClick={onClose} className="p-2 rounded hover:bg-gray-100" aria-label="Fechar modal">
-              <X size={18} />
-            </button>
-          </div>
-          <div className="p-4">{children}</div>
-          {footer && <div className="p-4 border-t">{footer}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ---------- avatar ---------- */
-function Avatar({ name }) {
-  return (
-    <div
-      className="h-20 w-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white grid place-items-center text-2xl font-semibold shadow"
-      aria-hidden
-    >
-      {initials(name)}
-    </div>
-  )
-}
-
-/* ---------- badge ---------- */
-function RoleBadge({ role }) {
-  const styles = {
-    admin: "bg-indigo-100 text-indigo-800",
-    funcionario: "bg-gray-100 text-gray-800",
-    professor: "bg-purple-100 text-purple-800",
-  }
-  return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${styles[role] || "bg-gray-100 text-gray-700"}`}>
-      <Shield className="h-3.5 w-3.5" /> {role || "—"}
-    </span>
-  )
-}
-
-/* ---------- main page ---------- */
-export default function Perfil() {
-  const [perfil, setPerfil] = useState({
-    nome: "—",
-    email: "—",
-    tipo: "—",
-    roles: [],
-    templates: [],
-    iat: null,
-    exp: null,
-  })
-  const [erro, setErro] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [toast, setToast] = useState("")
-  const [tokenModal, setTokenModal] = useState(false)
-
-  useEffect(() => {
-    setLoading(true)
+// Utilitário: lê user_id / nome / roles / templates do token e localStorage
+function readSession() {
+  const token = localStorage.getItem("token")
+  let claims = { user_id: null, user_nome: "Utilizador", roles: [], templates: [] }
+  if (token) {
     try {
-      const token = localStorage.getItem("token")
-      if (!token) throw new Error("Sessão não encontrada. Faça login novamente.")
-      const d = safeDecode(token)
-      if (!d) throw new Error("Token inválido ou corrompido.")
-      const emailFallback = localStorage.getItem("user_email") || "—"
-      const nome = d.user_nome || d.nome || d.name || "—"
-      const email = d.user_email || d.email || emailFallback
-      const roles = Array.isArray(d.roles) && d.roles.length ? d.roles : (d.user_tipo ? [d.user_tipo] : [])
-      const templates = Array.isArray(d.templates) ? d.templates : []
-      setPerfil({
-        nome,
-        email,
-        tipo: roles[0] || "—",
-        roles,
-        templates,
-        iat: d.iat ?? null,
-        exp: d.exp ?? null,
-        _raw: d,
-      })
-    } catch (e) {
-      setErro(e.message || "Não foi possível ler seu perfil.")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const sessionState = useMemo(() => {
-    if (!perfil.exp) return { expired: false, left: null, pct: null }
-    const now = Date.now() / 1000
-    const total = perfil.exp - (perfil.iat || perfil.exp - 1)
-    const left = Math.max(0, perfil.exp - now)
-    const pct = total > 0 ? Math.min(100, Math.max(0, (left / total) * 100)) : null
-    return { expired: left <= 0, left, pct }
-  }, [perfil.exp, perfil.iat])
-
-  const copyEmail = async () => {
-    try {
-      await navigator.clipboard.writeText(perfil.email || "")
-      setToast("Email copiado.")
-      setTimeout(() => setToast(""), 1500)
+      const d = jwtDecode(token)
+      claims.user_id = d?.user_id ?? null
+      claims.user_nome = d?.user_nome ?? localStorage.getItem("user_nome") ?? "Utilizador"
+      claims.roles = Array.isArray(d?.roles) ? d.roles : JSON.parse(localStorage.getItem("roles") || "[]")
+      claims.templates = Array.isArray(d?.templates) ? d.templates : JSON.parse(localStorage.getItem("templates") || "[]")
     } catch {
-      setToast("Falha ao copiar.")
-      setTimeout(() => setToast(""), 1500)
+      // fallback ao localStorage
+      claims.user_nome = localStorage.getItem("user_nome") || "Utilizador"
+      try { claims.roles = JSON.parse(localStorage.getItem("roles") || "[]") } catch { /* empty */}
+      try { claims.templates = JSON.parse(localStorage.getItem("templates") || "[]") } catch { /* empty */}
     }
+  } else {
+    claims.user_nome = localStorage.getItem("user_nome") || "Utilizador"
+    try { claims.roles = JSON.parse(localStorage.getItem("roles") || "[]") } catch { /* empty */ }
+    try { claims.templates = JSON.parse(localStorage.getItem("templates") || "[]") } catch { /* empty */}
   }
+  return claims
+}
 
-  const downloadTokenJson = () => {
+const prettyRole = (roles = []) => {
+  if (!Array.isArray(roles)) return "Utilizador"
+  if (roles.includes("admin")) return "Administrador"
+  if (roles.includes("professor")) return "Professor"
+  if (roles.includes("funcionario")) return "Funcionário"
+  return roles[0] ? roles[0][0].toUpperCase() + roles[0].slice(1) : "Utilizador"
+}
+
+export default function Perfil() {
+  const { user_id, user_nome, roles, templates } = useMemo(readSession, [])
+  const [nome, setNome] = useState(user_nome || "")
+  const [email, setEmail] = useState("")
+  const [avatar, setAvatar] = useState("")
+  const [newPwd, setNewPwd] = useState("")
+  const [confirmPwd, setConfirmPwd] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+  const [reloading, setReloading] = useState(false)
+
+  const fileInputRef = useRef(null)
+  const isAdmin = Array.isArray(roles) && roles.includes("admin")
+
+  // carrega dados completos atuais
+  useEffect(() => {
+    let active = true
+    const fetchMe = async () => {
+      if (!user_id) { setLoading(false); setError("Sessão inválida."); return }
+      setError("")
+      try {
+        const { data } = await api.get(`/users/${user_id}`)
+        // backend retorna { ...user, templates: [...] }
+        if (!active) return
+        setNome(data?.user_nome || user_nome || "")
+        setEmail(data?.user_email || "")
+        setAvatar(data?.avatar_url || "")
+      } catch (e) {
+        if (!active) return
+        setError(e?.response?.data?.message || e?.message || "Falha ao carregar perfil.")
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    fetchMe()
+    return () => { active = false }
+  }, [user_id, user_nome])
+
+  const handleAvatarPick = () => fileInputRef.current?.click()
+
+  const handleAvatarUpload = async (ev) => {
+    const file = ev.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      setError("Selecione um ficheiro de imagem.")
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Imagem até 5MB.")
+      return
+    }
+    setError("")
+    setSuccess("")
+    setUploading(true)
     try {
-      const blob = new Blob([JSON.stringify(perfil._raw ?? {}, null, 2)], { type: "application/json" })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = "token_payload.json"
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch { /* empty */ }
-  }
-
-  const logout = () => {
-    localStorage.removeItem("token")
-    localStorage.removeItem("user_email")
-    setToast("Sessão encerrada.")
-    setTimeout(() => { window.location.href = "/login" }, 600)
-  }
-
-  // agrupar templates por código
-  const groupedTemplates = useMemo(() => {
-    const arr = Array.isArray(perfil.templates) ? perfil.templates : []
-    const norm = arr.map(t => {
-      if (typeof t === "string") return { template_code: t }
-      return t || {}
-    })
-    const map = new Map()
-    for (const t of norm) {
-      const key = t.template_code || "desconhecido"
-      if (!map.has(key)) map.set(key, [])
-      map.get(key).push(t)
+      // Se o teu backend não tiver /upload-avatar, podes remover esta parte
+      const fd = new FormData()
+      fd.append("file", file)
+      const { data } = await api.post("/upload-avatar", fd, {
+        headers: { "Content-Type": "multipart/form-data" }
+      })
+      if (!data?.url) throw new Error("Resposta inválida do upload.")
+      setAvatar(data.url)
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || "Falha ao enviar imagem.")
+    } finally {
+      setUploading(false)
+      ev.target.value = ""
     }
-    return Array.from(map.entries()).map(([code, items]) => ({ code, items }))
-  }, [perfil.templates])
+  }
+
+  const resetForm = () => {
+    setReloading(true)
+    setError("")
+    setSuccess("")
+    // recarrega do servidor
+    api.get(`/users/${user_id}`)
+      .then(({ data }) => {
+        setNome(data?.user_nome || user_nome || "")
+        setEmail(data?.user_email || "")
+        setAvatar(data?.avatar_url || "")
+        setNewPwd("")
+        setConfirmPwd("")
+      })
+      .catch((e) => setError(e?.response?.data?.message || e?.message || "Falha ao recarregar dados."))
+      .finally(() => setReloading(false))
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError("")
+    setSuccess("")
+
+    if (newPwd && newPwd.length < 6) {
+      setError("A nova palavra-passe deve ter pelo menos 6 caracteres.")
+      return
+    }
+    if (newPwd && newPwd !== confirmPwd) {
+      setError("Confirmação de palavra-passe não coincide.")
+      return
+    }
+
+    setSaving(true)
+    try {
+      const payload = {
+        user_nome: nome?.trim() || undefined,
+        user_email: email?.trim() || undefined,
+        avatar_url: avatar || undefined,
+        ...(newPwd ? { user_senha: newPwd } : {})
+      }
+      await api.put(`/users/${user_id}`, payload) // permitido para o próprio utilizador
+      // atualiza nome local e notifica o app (Header, Sidebar…)
+      if (payload.user_nome) {
+        localStorage.setItem("user_nome", payload.user_nome)
+        window.dispatchEvent(new Event("auth:changed"))
+      }
+      setNewPwd("")
+      setConfirmPwd("")
+      setSuccess("Perfil atualizado com sucesso.")
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || "Não foi possível atualizar o perfil.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-gray-50 to-white p-6">
-      <section className="mx-auto max-w-5xl space-y-6">
-        {/* Header */}
-        <div className="rounded-2xl p-6 bg-white border border-gray-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Avatar name={perfil.nome} />
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold text-gray-900">Perfil</h1>
-                <button
-                  onClick={() => setTokenModal(true)}
-                  className="inline-flex items-center gap-1.5 text-indigo-700 hover:text-indigo-900 text-sm"
-                >
-                  <Info className="h-4 w-4" /> Detalhes do token
-                </button>
-              </div>
-              <p className="text-gray-600">Informações da sua conta e permissões</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {perfil.roles?.length ? perfil.roles.map((r, i) => <RoleBadge key={i} role={r} />) : <RoleBadge role={perfil.tipo} />}
-            <button
-              onClick={logout}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-gray-700 hover:bg-gray-50"
-            >
-              <LogOut className="h-4 w-4" /> Sair
-            </button>
-          </div>
+    <div className="min-h-[calc(100vh-64px)] bg-gray-50 dark:bg-gray-950">
+      <div className=" mx-auto p-6">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Meu Perfil</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Atualize as suas informações pessoais e credenciais</p>
         </div>
 
-        {/* Erro */}
-        {erro && (
-          <div
-            className="rounded-xl p-3 bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-2"
-            role="alert" aria-live="assertive"
-          >
-            <AlertCircle aria-hidden /> {erro}
-          </div>
-        )}
+        <div className="grid lg:grid-cols-[260px_1fr] gap-6 items-start">
+          {/* Cartão Avatar / Tipo */}
+          <section className="rounded-xl bg-white/90 dark:bg-gray-900/70 border border-gray-200 dark:border-gray-800 p-5">
+            <div className="flex flex-col items-center text-center">
+              <div className="relative">
+                {avatar ? (
+                  <img
+                    src={avatar}
+                    alt="Foto do perfil"
+                    className="h-28 w-28 rounded-full object-cover border-2 border-white shadow"
+                  />
+                ) : (
+                  <div className="h-28 w-28 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white text-2xl font-semibold border-2 border-white shadow">
+                    {(nome || "U").split(" ").map(p => p[0]).join("").slice(0,2).toUpperCase()}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAvatarPick}
+                  disabled={uploading}
+                  className="absolute bottom-0 right-0 p-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 border-2 border-white shadow disabled:opacity-60"
+                  title="Alterar foto"
+                  aria-label="Alterar foto do perfil"
+                >
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarUpload}
+                />
+              </div>
 
-        {/* Conteúdo */}
-        {!erro && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* card info */}
-            <div className="lg:col-span-2 rounded-2xl p-6 bg-white border border-gray-200 shadow-sm">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4">Informações pessoais</h2>
-
-              {loading ? (
-                <div className="animate-pulse space-y-3">
-                  <div className="h-4 bg-gray-100 rounded w-1/3" />
-                  <div className="h-4 bg-gray-100 rounded w-2/3" />
-                  <div className="h-4 bg-gray-100 rounded w-1/2" />
+              <div className="mt-4">
+                <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">{nome || "Utilizador"}</div>
+                <div className="mt-1 inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                  <Shield className="h-4 w-4" />
+                  <span>{prettyRole(roles)}</span>
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl border bg-white">
-                    <div className="text-gray-500 text-sm">Nome</div>
-                    <div className="font-medium text-gray-900">{perfil.nome}</div>
+              </div>
+
+              {/* Permissões (resumo) */}
+              <div className="mt-4 w-full">
+                <div className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Permissões (resumo)</div>
+                <div className="flex flex-wrap gap-1">
+                  {(Array.isArray(templates) ? templates : []).slice(0, 6).map((t, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] text-gray-700 dark:text-gray-200">
+                      {t?.template_code || "—"}
+                    </span>
+                  ))}
+                  {Array.isArray(templates) && templates.length === 0 && (
+                    <span className="text-xs text-gray-500">Sem registos</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Formulário */}
+          <section className="rounded-xl bg-white/90 dark:bg-gray-900/70 border border-gray-200 dark:border-gray-800 p-5">
+            {loading ? (
+              <div className="py-16 flex items-center justify-center text-gray-600 dark:text-gray-300">
+                <Loader2 className="h-6 w-6 animate-spin mr-2" /> A carregar…
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} noValidate className="space-y-6" aria-describedby="perfil-status">
+                {/* Mensagens */}
+                <div id="perfil-status" className="sr-only" aria-live="polite">
+                  {saving ? "A guardar alterações…" : (success || error ? "Alterações processadas." : "Pronto.")}
+                </div>
+
+                {error && (
+                  <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    <XCircle className="h-5 w-5 mt-0.5" />
+                    <div>{error}</div>
                   </div>
-                  <div className="p-4 rounded-xl border bg-white">
-                    <div className="text-gray-500 text-sm flex items-center gap-1">
-                      <Mail className="h-4 w-4" aria-hidden /> Email
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900 break-all">{perfil.email}</span>
-                      <button
-                        onClick={copyEmail}
-                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded border text-xs text-gray-700 hover:bg-gray-50"
-                        aria-label="Copiar e-mail"
-                      >
-                        <Copy className="h-3.5 w-3.5" /> Copiar
-                      </button>
-                    </div>
+                )}
+                {success && (
+                  <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                    <CheckCircle2 className="h-5 w-5 mt-0.5" />
+                    <div>{success}</div>
                   </div>
-                  <div className="p-4 rounded-xl border bg-white">
-                    <div className="text-gray-500 text-sm">Tipo</div>
-                    <div className="font-medium text-gray-900">{perfil.tipo}</div>
-                  </div>
-                  <div className="p-4 rounded-xl border bg-white">
-                    <div className="text-gray-500 text-sm flex items-center gap-1">
-                      <KeyRound className="h-4 w-4" aria-hidden /> Sessão
+                )}
+
+                {/* Identificação */}
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Informações pessoais</h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Estas informações identificam a sua conta.</p>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Nome</label>
+                      <input
+                        type="text"
+                        value={nome}
+                        onChange={(e)=>setNome(e.target.value)}
+                        required
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Seu nome"
+                      />
                     </div>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex items-center gap-2 text-gray-700">
-                        <Calendar className="h-4 w-4" aria-hidden /> Emitido: <b className="ml-1">{formatDt(perfil.iat)}</b>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Email</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} aria-hidden="true" />
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e)=>setEmail(e.target.value)}
+                          required
+                          className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          placeholder="email@exemplo.com"
+                        />
                       </div>
-                      <div className="flex items-center gap-2 text-gray-700">
-                        <Timer className="h-4 w-4" aria-hidden /> Expira: <b className="ml-1">{formatDt(perfil.exp)}</b>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Segurança */}
+                <div className="border-t border-gray-200 dark:border-gray-800 pt-4">
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Segurança</h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Defina uma nova palavra-passe (opcional).</p>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Nova palavra-passe</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} aria-hidden="true" />
+                        <input
+                          type="password"
+                          value={newPwd}
+                          onChange={(e)=>setNewPwd(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          placeholder="Deixe em branco para manter"
+                          minLength={6}
+                        />
                       </div>
-                      {perfil.exp && (
-                        <div className="mt-2">
-                          <div className="h-2 bg-gray-100 rounded-full">
-                            <div
-                              className={`h-2 rounded-full ${sessionState.expired ? "bg-rose-400" : "bg-emerald-500"}`}
-                              style={{ width: `${sessionState.pct ?? 0}%` }}
-                              aria-label="Tempo restante da sessão"
-                            />
-                          </div>
-                          <p className={`mt-1 text-xs ${sessionState.expired ? "text-rose-600" : "text-gray-500"}`}>
-                            {sessionState.expired ? "Sessão expirada" : "Tempo restante aproximado"}
-                          </p>
-                        </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Confirmar palavra-passe</label>
+                      <input
+                        type="password"
+                        value={confirmPwd}
+                        onChange={(e)=>setConfirmPwd(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Repita a nova palavra-passe"
+                        minLength={6}
+                      />
+                      {!!newPwd && !!confirmPwd && newPwd !== confirmPwd && (
+                        <p className="text-[11px] text-red-600 mt-1">As palavras-passe não coincidem.</p>
                       )}
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* card perms */}
-            <div className="rounded-2xl p-6 bg-white border border-gray-200 shadow-sm">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                <Shield className="h-4 w-4 text-indigo-600" aria-hidden /> Permissões
-              </h2>
-
-              {loading ? (
-                <div className="space-y-2 animate-pulse">
-                  <div className="h-4 bg-gray-100 rounded" />
-                  <div className="h-4 bg-gray-100 rounded w-2/3" />
-                  <div className="h-4 bg-gray-100 rounded w-1/2" />
+                {/* Ações */}
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60"
+                  >
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Guardar alterações
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reloading || loading}
+                    onClick={resetForm}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${reloading ? "animate-spin" : ""}`} />
+                    Recarregar
+                  </button>
                 </div>
-              ) : perfil.templates?.length ? (
-                <div className="space-y-3">
-                  {groupedTemplates.map(({ code, items }) => {
-                    const label = TEMPLATE_LABELS[code] || code
-                    const hasResources = items.some(i => i?.resource_id != null)
-                    return (
-                      <div key={code} className="rounded-xl border p-3 bg-white">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-4 w-4 text-emerald-600" aria-hidden />
-                          <span className="text-sm font-medium text-gray-900">{label}</span>
-                          <span className="ml-auto text-xs text-gray-500">{items.length} vínculo(s)</span>
-                        </div>
-                        {hasResources && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {items.filter(i => i?.resource_id != null).map((i, idx) => (
-                              <span
-                                key={idx}
-                                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-indigo-50 text-indigo-800"
-                              >
-                                recurso #{i.resource_id}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+
+                {/* Info admin somente leitura */}
+                <div className="pt-4 text-xs text-gray-500 dark:text-gray-400">
+                  Tipo de utilizador: <strong className="text-gray-700 dark:text-gray-300">{prettyRole(roles)}</strong>
+                  {isAdmin && <span className="ml-2 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">admin</span>}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-600">Nenhum template associado.</p>
-              )}
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setTokenModal(true)}
-                  className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50 inline-flex items-center gap-2"
-                >
-                  <Eye className="h-4 w-4" /> Ver payload
-                </button>
-                <button
-                  onClick={downloadTokenJson}
-                  className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50 inline-flex items-center gap-2"
-                >
-                  <Download className="h-4 w-4" /> Baixar JSON
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Modal token */}
-      <Modal
-        open={tokenModal}
-        onClose={() => setTokenModal(false)}
-        title="Detalhes do token (JWT)"
-        footer={
-          <div className="flex justify-end">
-            <button onClick={() => setTokenModal(false)} className="px-4 py-2 rounded-lg border">Fechar</button>
-          </div>
-        }
-      >
-        <div className="text-sm text-gray-700">
-          <p className="mb-2">
-            Estes dados são decodificados do seu token armazenado no navegador. <b>Não</b> incluem a assinatura.
-          </p>
-          <pre className="overflow-auto text-xs bg-gray-50 border rounded-lg p-3 max-h-80">
-{JSON.stringify(perfil._raw ?? {}, null, 2)}
-          </pre>
+              </form>
+            )}
+          </section>
         </div>
-      </Modal>
-
-      <Toast msg={toast} onClose={() => setToast("")} />
-    </main>
+      </div>
+    </div>
   )
 }
