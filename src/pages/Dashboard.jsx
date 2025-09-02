@@ -3,8 +3,7 @@
 import React from "react"
 import {
   Users, PackageCheck, Shapes, Layers, RefreshCw, FileText,
-  ArrowUpRight, ArrowDownRight, Loader2,
-  Calendar, Activity, PieChart, AlertCircle, BarChart4
+  ArrowUpRight, ArrowDownRight, Calendar, Activity, PieChart, AlertCircle, BarChart4
 } from "lucide-react"
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -23,9 +22,10 @@ const TONES = {
   pink:    { bg: "bg-gradient-to-br from-pink-500/10 to-pink-400/10",   text: "text-pink-700 dark:text-pink-300",   ring: "ring-pink-400/30",    dot: "bg-pink-500" },
   indigo:  { bg: "bg-gradient-to-br from-indigo-500/10 to-indigo-400/10", text: "text-indigo-700 dark:text-indigo-300", ring: "ring-indigo-400/30", dot: "bg-indigo-500" },
   purple:  { bg: "bg-gradient-to-br from-purple-500/10 to-purple-400/10", text: "text-purple-700 dark:text-purple-300", ring: "ring-purple-400/30", dot: "bg-purple-500" },
+  violet:  { bg: "bg-gradient-to-br from-violet-500/10 to-violet-400/10", text: "text-violet-700 dark:text-violet-300", ring: "ring-violet-400/30", dot: "bg-violet-500" },
+  fuchsia: { bg: "bg-gradient-to-br from-fuchsia-500/10 to-fuchsia-400/10", text: "text-fuchsia-700 dark:text-fuchsia-300", ring: "ring-fuchsia-400/30", dot: "bg-fuchsia-500" },
 }
 
-// eslint-disable-next-line no-unused-vars
 function StatCard({ icon: IconCmp = Users, label, value, secondaryValue, trend, tone = "blue" }) {
   const t = TONES[tone] || TONES.blue
   return (
@@ -121,25 +121,25 @@ export default function Dashboard() {
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 to-purple-600">
-            Dashboard
-          </h1>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600 dark:text-gray-300 hidden md:flex items-center">
-              <Calendar className="h-4 w-4 mr-1" />
-              {new Date().toLocaleDateString("pt-PT")}
-            </span>
-            <button
-              onClick={refresh}
-              className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
-            </button>
-          </div>
+        <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 to-purple-600">
+          Dashboard
+        </h1>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600 dark:text-gray-300 hidden md:flex items-center">
+            <Calendar className="h-4 w-4 mr-1" />
+            {new Date().toLocaleDateString("pt-PT")}
+          </span>
+          <button
+            onClick={refresh}
+            className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
+          </button>
         </div>
+      </div>
 
       {/* content */}
-      <div className="flex-grow  p-4">
+      <div className="flex-grow p-4">
         {/* cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
           {cards.map((card, idx) => {
@@ -295,10 +295,14 @@ export default function Dashboard() {
               <p className="text-xs text-amber-600 dark:text-amber-300/80 mt-1">Diferença entrada/saída</p>
             </div>
 
-            <div className="rounded-xl p-4 ring-1 ring-emerald-400/20 bg-gradient-to-br from-emerald-500/10 to-emerald-400/10">
-              <h3 className="text-sm text-emerald-700 dark:text-emerald-300 font-medium mb-2">Materiais</h3>
-              <p className="text-2xl font-bold text-emerald-800 dark:text-emerald-200">{metrics.lowStockMaterials ?? "—"}</p>
-              <p className="text-xs text-emerald-600 dark:text-emerald-300/80 mt-1">Com estoque baixo</p>
+            <div className="rounded-xl p-4 ring-1 ring-purple-400/20 bg-gradient-to-br from-purple-500/10 to-purple-400/10">
+              <h3 className="text-sm text-purple-700 dark:text-purple-300 font-medium mb-2">Receita (7d)</h3>
+              <p className="text-2xl font-bold text-purple-800 dark:text-purple-200">
+                € {Number(metrics.receita7d || 0).toFixed(2)}
+              </p>
+              <p className="text-xs text-purple-600 dark:text-purple-300/80 mt-1">
+                {metrics.numVendas7d ?? 0} vendas
+              </p>
             </div>
           </div>
         </div>
