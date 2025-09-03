@@ -6,6 +6,7 @@ import {
   Package, ArrowRight, Search, Percent, BadgeDollarSign, Minus, Plus, ShieldAlert
 } from "lucide-react";
 import { usePDV } from "../hooks/usePDV";
+import api from "../api";
 
 /* ===== Modal (UI-only) ===== */
 function Modal({ open, title, onClose, children, footer }) {
@@ -56,28 +57,160 @@ function Toast({ msg, tone = "ok", onClose }) {
 /* ===== Página ===== */
 export default function PDV() {
   const {
-    // gate/boot
     allowed, loadingBoot,
-    // estado base
-    // eslint-disable-next-line no-unused-vars
     materials, catalogQ, setCatalogQ, cart, setCart,
     customer, setCustomer, discount, setDiscount, discountMode, setDiscountMode,
-    // modais
     payOpen, setPayOpen, addOpen, setAddOpen, payMethod, setPayMethod,
-    // caixa
     caixaAberto,
-    // derivados
     subtotal, discountValue, total, catalog,
-    // ações carrinho
     addItem, inc, dec, updateQty, removeItem, clearSale,
-    // checkout
     loading, checkout,
-    // toast
     toast, toastTone, setToast,
-    // utils
     fmt,
   } = usePDV();
 
+  const [printing, setPrinting] = React.useState(false);
+
+  /* helpers */
+  const todayISO = React.useCallback(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }, []);
+
+  /** cria iframe invisível, abre o blob e chama print() */
+  const printBlob = React.useCallback((blob, filename = "recibo.pdf") => {
+    const url = URL.createObjectURL(blob);
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    iframe.onload = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } finally {
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+          document.body.removeChild(iframe);
+        }, 1200);
+      }
+    };
+  }, []);
+
+  /** pede um recurso imprimível (PDF/HTML) via axios já configurado */
+  const apiGetPrintable = React.useCallback(async (url, method = "GET") => {
+    const res = await api.request({
+      url,
+      method,
+      responseType: "blob",
+      headers: { Accept: "application/pdf, text/html" }
+    });
+    return res.data; // blob
+  }, []);
+
+  /** fallback: última venda Paga do dia (mais recente) */
+  const inferTodaysLastPaidSaleId = React.useCallback(async () => {
+    const day = todayISO();
+    const res = await api.get("/vendas", {
+      params: { status: "Paga", from: day, to: day }
+    });
+    const list = res.data;
+    if (Array.isArray(list) && list.length > 0) {
+      return list[0]?.ven_id || null;
+    }
+    return null;
+  }, [todayISO]);
+
+  /** tenta imprimir pelo pdf_hint / rec_id / ven_id; senão tenta fallback */
+  const printReceiptForSale = React.useCallback(async (result) => {
+    setPrinting(true);
+    try {
+      console.log("checkout() result →", result);
+
+      const venId =
+        result?.venda?.ven_id ??
+        result?.data?.venda?.ven_id ??
+        result?.ven_id ??
+        result?.data?.ven_id ??
+        result?.id ??
+        result?.venId ??
+        null;
+
+      const recId =
+        result?.recibo?.rec_id ??
+        result?.data?.recibo?.rec_id ??
+        result?.rec_id ??
+        null;
+
+      const pdfHint =
+        result?.recibo?.pdf_hint ??
+        result?.data?.recibo?.pdf_hint ??
+        result?.pdf_hint ??
+        null;
+
+      // 1) se veio um link direto
+      if (pdfHint) {
+        const blob = await apiGetPrintable(pdfHint, "GET");
+        printBlob(blob, `recibo-${recId || venId || "venda"}.pdf`);
+        setToast("Recibo gerado.");
+        return;
+      }
+
+      // 2) se temos rec_id
+      if (recId) {
+        const blob = await apiGetPrintable(`/recibos/${recId}/pdf`, "GET");
+        printBlob(blob, `recibo-${recId}.pdf`);
+        setToast("Recibo gerado.");
+        return;
+      }
+
+      // 3) se temos venId
+      if (venId) {
+        const blob = await apiGetPrintable(`/vendas/${venId}/recibo/pdf`, "POST");
+        printBlob(blob, `recibo-${venId}.pdf`);
+        setToast("Recibo gerado.");
+        return;
+      }
+
+      // 4) fallback: última venda Paga de hoje
+      const inferred = await inferTodaysLastPaidSaleId();
+      if (inferred) {
+        const blob = await apiGetPrintable(`/vendas/${inferred}/recibo/pdf`, "POST");
+        printBlob(blob, `recibo-${inferred}.pdf`);
+        setToast("Recibo gerado.");
+        return;
+      }
+
+      setToast("Venda concluída, mas não consegui gerar o recibo.");
+    } catch (err) {
+      console.error(err);
+      setToast("Não foi possível gerar/imprimir o recibo.");
+    } finally {
+      setPrinting(false);
+    }
+  }, [apiGetPrintable, printBlob, inferTodaysLastPaidSaleId, setToast]);
+
+  /** conclui a venda e dispara impressão do recibo */
+  const handleCheckout = React.useCallback(async () => {
+    try {
+      const result = await checkout(); // certifica-te que o hook devolve algo
+      setPayOpen(false);
+      await printReceiptForSale(result ?? null);
+      clearSale?.();
+    } catch (e) {
+      console.error(e);
+    }
+  }, [checkout, printReceiptForSale, setPayOpen, clearSale]);
+
+  /* render */
   if (loadingBoot) {
     return (
       <main className="min-h-screen grid place-items-center">
@@ -86,7 +219,6 @@ export default function PDV() {
     );
   }
 
-  // Gate visual — sem permissão
   if (!allowed) {
     return (
       <main className="min-h-screen grid place-items-center p-6">
@@ -260,10 +392,10 @@ export default function PDV() {
           </div>
 
           <button
-            disabled={!caixaAberto || cart.length === 0}
+            disabled={!caixaAberto || cart.length === 0 || printing}
             onClick={() => setPayOpen(true)}
             className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
-            aria-disabled={!caixaAberto || cart.length === 0}
+            aria-disabled={!caixaAberto || cart.length === 0 || printing}
           >
             <CreditCard size={18} /> Finalizar pagamento
           </button>
@@ -314,8 +446,8 @@ export default function PDV() {
             <button onClick={() => setPayOpen(false)} className="px-4 py-2 rounded-lg border">
               Cancelar
             </button>
-            <button onClick={checkout} className="px-4 py-2 rounded-lg bg-emerald-600 text-white">
-              {loading ? (
+            <button onClick={handleCheckout} className="px-4 py-2 rounded-lg bg-emerald-600 text-white">
+              {loading || printing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <span className="inline-flex items-center gap-2">

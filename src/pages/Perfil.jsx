@@ -3,11 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { jwtDecode } from "jwt-decode"
 import {
-  UserCircle2, Camera, Loader2, Mail, Shield, Lock, CheckCircle2, XCircle, RefreshCw
+  Camera, Loader2, Mail, Shield, Lock, CheckCircle2, XCircle, RefreshCw
 } from "lucide-react"
 import api from "../api"
 
-// Utilitário: lê user_id / nome / roles / templates do token e localStorage
+// Lê sessão do token/localStorage
 function readSession() {
   const token = localStorage.getItem("token")
   let claims = { user_id: null, user_nome: "Utilizador", roles: [], templates: [] }
@@ -19,15 +19,14 @@ function readSession() {
       claims.roles = Array.isArray(d?.roles) ? d.roles : JSON.parse(localStorage.getItem("roles") || "[]")
       claims.templates = Array.isArray(d?.templates) ? d.templates : JSON.parse(localStorage.getItem("templates") || "[]")
     } catch {
-      // fallback ao localStorage
       claims.user_nome = localStorage.getItem("user_nome") || "Utilizador"
-      try { claims.roles = JSON.parse(localStorage.getItem("roles") || "[]") } catch { /* empty */}
-      try { claims.templates = JSON.parse(localStorage.getItem("templates") || "[]") } catch { /* empty */}
+      try { claims.roles = JSON.parse(localStorage.getItem("roles") || "[]") } catch {}
+      try { claims.templates = JSON.parse(localStorage.getItem("templates") || "[]") } catch {}
     }
   } else {
     claims.user_nome = localStorage.getItem("user_nome") || "Utilizador"
-    try { claims.roles = JSON.parse(localStorage.getItem("roles") || "[]") } catch { /* empty */ }
-    try { claims.templates = JSON.parse(localStorage.getItem("templates") || "[]") } catch { /* empty */}
+    try { claims.roles = JSON.parse(localStorage.getItem("roles") || "[]") } catch {}
+    try { claims.templates = JSON.parse(localStorage.getItem("templates") || "[]") } catch {}
   }
   return claims
 }
@@ -41,10 +40,13 @@ const prettyRole = (roles = []) => {
 }
 
 export default function Perfil() {
-  const { user_id, user_nome, roles, templates } = useMemo(readSession, [])
-  const [nome, setNome] = useState(user_nome || "")
+  const session = useMemo(readSession, [])
+  const [nome, setNome] = useState(session.user_nome || "")
   const [email, setEmail] = useState("")
   const [avatar, setAvatar] = useState("")
+  const [roles, setRoles] = useState(session.roles || [])
+  const [templates, setTemplates] = useState(session.templates || [])
+
   const [newPwd, setNewPwd] = useState("")
   const [confirmPwd, setConfirmPwd] = useState("")
   const [loading, setLoading] = useState(true)
@@ -57,19 +59,43 @@ export default function Perfil() {
   const fileInputRef = useRef(null)
   const isAdmin = Array.isArray(roles) && roles.includes("admin")
 
-  // carrega dados completos atuais
+  // Apply novo token do backend (rota token + reflete no UI/localStorage)
+  const applyNewToken = (token) => {
+    if (!token) return
+    localStorage.setItem("token", token)
+    try {
+      const d = jwtDecode(token)
+      if (d?.user_nome) {
+        localStorage.setItem("user_nome", d.user_nome)
+        setNome(d.user_nome)
+      }
+      if (Array.isArray(d?.roles)) {
+        localStorage.setItem("roles", JSON.stringify(d.roles))
+        setRoles(d.roles)
+      }
+      if (Array.isArray(d?.templates)) {
+        localStorage.setItem("templates", JSON.stringify(d.templates))
+        setTemplates(d.templates)
+      }
+      window.dispatchEvent(new Event("auth:changed"))
+    } catch {
+      // se não decodificar, fica só com o token
+    }
+  }
+
+  // Carrega perfil do próprio (novo back: GET /profile)
   useEffect(() => {
     let active = true
     const fetchMe = async () => {
-      if (!user_id) { setLoading(false); setError("Sessão inválida."); return }
       setError("")
       try {
-        const { data } = await api.get(`/users/${user_id}`)
-        // backend retorna { ...user, templates: [...] }
+        const { data } = await api.get("/profile")
         if (!active) return
-        setNome(data?.user_nome || user_nome || "")
+        setNome(data?.user_nome || session.user_nome || "")
         setEmail(data?.user_email || "")
         setAvatar(data?.avatar_url || "")
+        if (Array.isArray(data?.roles)) setRoles(data.roles)
+        if (Array.isArray(data?.templates)) setTemplates(data.templates)
       } catch (e) {
         if (!active) return
         setError(e?.response?.data?.message || e?.message || "Falha ao carregar perfil.")
@@ -79,7 +105,8 @@ export default function Perfil() {
     }
     fetchMe()
     return () => { active = false }
-  }, [user_id, user_nome])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleAvatarPick = () => fileInputRef.current?.click()
 
@@ -98,7 +125,7 @@ export default function Perfil() {
     setSuccess("")
     setUploading(true)
     try {
-      // Se o teu backend não tiver /upload-avatar, podes remover esta parte
+      // Opcional: precisa de endpoint POST /upload-avatar que devolva { url }
       const fd = new FormData()
       fd.append("file", file)
       const { data } = await api.post("/upload-avatar", fd, {
@@ -118,12 +145,13 @@ export default function Perfil() {
     setReloading(true)
     setError("")
     setSuccess("")
-    // recarrega do servidor
-    api.get(`/users/${user_id}`)
+    api.get("/profile")
       .then(({ data }) => {
-        setNome(data?.user_nome || user_nome || "")
+        setNome(data?.user_nome || session.user_nome || "")
         setEmail(data?.user_email || "")
         setAvatar(data?.avatar_url || "")
+        if (Array.isArray(data?.roles)) setRoles(data.roles)
+        if (Array.isArray(data?.templates)) setTemplates(data.templates)
         setNewPwd("")
         setConfirmPwd("")
       })
@@ -153,8 +181,9 @@ export default function Perfil() {
         avatar_url: avatar || undefined,
         ...(newPwd ? { user_senha: newPwd } : {})
       }
-      await api.put(`/users/${user_id}`, payload) // permitido para o próprio utilizador
-      // atualiza nome local e notifica o app (Header, Sidebar…)
+      const { data } = await api.put("/profile", payload)
+      if (data?.token) applyNewToken(data.token)
+      // Atualiza nome em cache para Header/Sidebar mesmo que não venha token
       if (payload.user_nome) {
         localStorage.setItem("user_nome", payload.user_nome)
         window.dispatchEvent(new Event("auth:changed"))
