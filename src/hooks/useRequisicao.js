@@ -1,4 +1,3 @@
-// src/hooks/useRequisicao.js
 import { useEffect, useMemo, useRef, useState } from "react"
 import api from "../api"
 
@@ -46,8 +45,10 @@ export function useRequisicao() {
     email: decoded.email ?? null,
   }
 
-  const permissoes = Array.isArray(decoded.permissoes) ? decoded.permissoes : []
-  const canViewUsers = permissoes.some(p => p.modulo === "utilizador" && p.acao === "visualizar")
+  // roles/caps (opcional, caso use no futuro)
+  const rolesLS = useMemo(() => JSON.parse(localStorage.getItem("roles") || "[]"), [])
+  const capsLS  = useMemo(() => new Set(JSON.parse(localStorage.getItem("caps") || "[]")), [])
+  const canViewUsers = rolesLS.includes("admin") || capsLS.has("utilizador:visualizar")
 
   const templates = Array.isArray(decoded.templates) ? decoded.templates : []
   const allowedCategoryIds = templates
@@ -73,8 +74,7 @@ export function useRequisicao() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
-  // ===== Estado ÚNICO de Modal (sem alerts/prompts) =====
-  // kind: 'decisao' | 'atender' | 'devolver' | 'delete'
+  // ===== Modal =====
   const [uiModal, setUiModal] = useState({ open: false, kind: null, payload: null })
   const closeModal = () => setUiModal({ open: false, kind: null, payload: null })
 
@@ -98,6 +98,7 @@ export function useRequisicao() {
     const t = tipoById(fkTipo)
     return t ? Number(t.tipo_fk_categoria) : null
   }
+
   const canOperateReq = (req) => {
     if (hasGlobalManageCategory) return true
     if (!allowedCategoryIds.length) return false
@@ -185,7 +186,7 @@ export function useRequisicao() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ===== Form: add/remove/submit =====
+  // ===== Form =====
   const addItem = () => {
     const q = Number(itemQuantidade)
     if (!itemMaterial) { setError("Selecione um material."); return }
@@ -221,21 +222,28 @@ export function useRequisicao() {
     } finally { setSubmitting(false) }
   }
 
-  // ====== Aberturas de modal (substituem prompts/confirms) ======
+  // ===== Aberturas de modal (reforçando regras por status) =====
   const openDecision = (req, tipo) => {
     if (!req) return
+    const st = String(req.req_status || "")
+    if (st !== "Pendente") { setError("Apenas requisições Pendentes podem receber decisão."); return }
     if (!canDecideReq(req)) { setError("Sem permissão para decidir esta requisição."); return }
     setUiModal({ open: true, kind: "decisao", payload: { reqId: req.req_id, tipo } })
   }
 
   const openAtender = (req, item) => {
+    const st = String(req.req_status || "")
+    const restante = Number(item?.rqi_quantidade || 0) - Number(item?.rqi_qtd_atendida || 0)
+    if (!["Aprovada", "Parcial", "Em Uso"].includes(st)) { setError("Esta requisição não pode ser atendida neste estado."); return }
+    if (restante <= 0) { setError("Não há quantidade restante para atender."); return }
     if (!canOperateReq(req)) { setError("Sem permissão para atender esta requisição."); return }
-    const restante = Number(item.rqi_quantidade || 0) - Number(item.rqi_qtd_atendida || 0)
     setUiModal({ open: true, kind: "atender", payload: { reqId: req.req_id, itemId: item.rqi_id, restante } })
   }
 
   const openDevolver = (req, item) => {
-    const emUso = Number(item.rqi_qtd_atendida || 0) - Number(item.rqi_qtd_devolvida || 0)
+    const st = String(req.req_status || "")
+    const emUso = Number(item?.rqi_qtd_atendida || 0) - Number(item?.rqi_qtd_devolvida || 0)
+    if (!["Em Uso", "Parcial", "Atendida"].includes(st)) { setError("Devolução não permitida neste estado."); return }
     if (emUso <= 0) { setError("Nada a devolver."); return }
     if (!isAprovadorDaRequisicao(req)) { setError("Apenas o aprovador pode aprovar a devolução."); return }
     setUiModal({ open: true, kind: "devolver", payload: { reqId: req.req_id, itemId: item.rqi_id, emUso } })
@@ -245,7 +253,7 @@ export function useRequisicao() {
     setUiModal({ open: true, kind: "delete", payload: { reqId } })
   }
 
-  // ====== Confirmações vindas do modal ======
+  // ===== Confirmações =====
   const confirmDecision = async ({ motivo = "" }) => {
     const { reqId, tipo } = uiModal.payload || {}
     if (!reqId || !tipo) return
@@ -343,7 +351,7 @@ export function useRequisicao() {
     // filtros
     filterStatus, setFilterStatus,
     filterMaterial, setFilterMaterial,
-    // form (modal de criação)
+    // form
     formNeededAt, setFormNeededAt,
     formLocalEntrega, setFormLocalEntrega,
     formJustificativa, setFormJustificativa,
@@ -354,7 +362,7 @@ export function useRequisicao() {
     itens, addItem, removeItem, submitRequisicao,
     // helpers
     materialNome,
-    // MODAL STATE + AÇÕES (sem alerts/prompts)
+    // modais + ações
     uiModal, closeModal,
     openDecision, confirmDecision,
     openAtender,  confirmAtender,

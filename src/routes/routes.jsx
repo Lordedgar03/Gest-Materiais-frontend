@@ -1,27 +1,33 @@
+/* eslint-disable react-refresh/only-export-components */
 // src/routes.jsx
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { jwtDecode } from "jwt-decode";
 
-// lazy-loading
-const Dashboard        = lazy(() => import("../pages/Dashboard"));
-const Categories       = lazy(() => import("../pages/Categories"));
-const Types            = lazy(() => import("../pages/Types"));
-const Materials        = lazy(() => import("../pages/Materials"));
-const Movements        = lazy(() => import("../pages/Movements"));
-const Reports          = lazy(() => import("../pages/Reports"));
-const UsersPage        = lazy(() => import("../pages/Users"));
-const MaterialsRecycle = lazy(() => import("../pages/MaterialsRecycle"));
-const Ajuda            = lazy(() => import("../pages/Ajuda"));
-const Perfil           = lazy(() => import("../pages/Perfil"));
-const Login            = lazy(() => import("../pages/Login"));
-const Requisitions     = lazy(() => import("../pages/Requisitions"));
-const Caixa            = lazy(() => import("../pages/Caixa"));
-const PDV              = lazy(() => import("../pages/PDV"));
-const Vendas           = lazy(() => import("../pages/Vendas"));
+/* ========== Lazy pages ========== */
+const Dashboard     = lazy(() => import("../pages/Dashboard"));
+const Categories    = lazy(() => import("../pages/Categories"));
+const Types         = lazy(() => import("../pages/Types"));
+const Materials     = lazy(() => import("../pages/Materials"));
+const Movements     = lazy(() => import("../pages/Movements"));
+const Reports       = lazy(() => import("../pages/Reports"));
+const UsersPage     = lazy(() => import("../pages/Users"));
+const Requisitions  = lazy(() => import("../pages/Requisitions"));
+const Caixa         = lazy(() => import("../pages/Caixa"));
+const PDV           = lazy(() => import("../pages/PDV"));
+const Vendas        = lazy(() => import("../pages/Vendas"));
 
-/** === Auth helpers === */
+/** Novas páginas do módulo Almoço */
+const Almoco        = lazy(() => import("../pages/Almoco"));
+const Alunos        = lazy(() => import("../pages/Alunos"));
+const Marcacoes     = lazy(() => import("../pages/Marcacoes"));
+const Configuracoes = lazy(() => import("../pages/Configuracoes"));
 
+const Ajuda         = lazy(() => import("../pages/Ajuda"));
+const Perfil        = lazy(() => import("../pages/Perfil"));
+const Login         = lazy(() => import("../pages/Login"));
+
+/* ========== Auth helpers ========== */
 export function isTokenValid() {
   const token = localStorage.getItem("token");
   if (!token) return false;
@@ -37,7 +43,7 @@ function ProtectedRoute({ children, isAuthenticated }) {
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
-/** Constrói capacidades a partir do token (igual lógica do Sidebar) */
+/** Constrói capacidades a partir do token (igual ao Sidebar) */
 const TEMPLATE_TO_CAPS = {
   baseline: [
     { module: "dashboard", action: "visualizar" },
@@ -47,7 +53,7 @@ const TEMPLATE_TO_CAPS = {
     { module: "materiais", action: "visualizar" },
     { module: "movimentacoes", action: "visualizar" },
     { module: "requisicoes", action: "visualizar" },
-    { module: "venda", action: "visualizar" },
+    { module: "venda", action: "visualizar" },   // dá acesso a Vendas/PDV/Caixa/Almoço/Alunos/Marcações/Configurações (front)
     { module: "recibo", action: "visualizar" },
   ],
   manage_category: [
@@ -110,8 +116,7 @@ function RequirePermission({ children, permission }) {
   return hasPermission(authz, permission) ? children : <Navigate to="/dashboard" replace />;
 }
 
-/** === Rotas === */
-
+/* ========== Routes ========== */
 export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
   return (
     <Suspense fallback={<div className="p-6 text-gray-600">Carregando…</div>}>
@@ -140,6 +145,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/categorias"
           element={
@@ -210,16 +216,8 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/materials-recycle"
-          element={
-            <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "materiais", action: "eliminar" }}>
-                <MaterialsRecycle />
-              </RequirePermission>
-            </ProtectedRoute>
-          }
-        />
+
+        {/* Vendas & Caixa */}
         <Route
           path="/vendas"
           element={
@@ -251,6 +249,49 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           }
         />
 
+        {/* Módulo Almoço (tudo sob permissão "venda:visualizar") */}
+        <Route
+          path="/almoco"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <RequirePermission permission={{ module: "venda", action: "visualizar" }}>
+                <Almoco />
+              </RequirePermission>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/alunos"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <RequirePermission permission={{ module: "venda", action: "visualizar" }}>
+                <Alunos />
+              </RequirePermission>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/marcacoes"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <RequirePermission permission={{ module: "venda", action: "visualizar" }}>
+                <Marcacoes />
+              </RequirePermission>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/configuracoes"
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <RequirePermission permission={{ module: "venda", action: "visualizar" }}>
+                <Configuracoes />
+              </RequirePermission>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Sistema */}
         <Route
           path="/ajuda"
           element={

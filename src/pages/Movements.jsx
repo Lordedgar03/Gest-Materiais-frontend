@@ -60,10 +60,10 @@ function Th({ children, active, dir, onClick }) {
 /* ---------- Card compacto ---------- */
 function Card({ title, value, accent = "indigo" }) {
   const ring = {
-    indigo: "ring-indigo-400/30 from-indigo-500/10 to-indigo-400/10",
-    emerald: "ring-emerald-400/30 from-emerald-500/10 to-emerald-400/10",
-    rose: "ring-rose-400/30 from-rose-500/10 to-rose-400/10",
-    amber: "ring-amber-400/30 from-amber-500/10 to-amber-400/10",
+    indigo: "ring-indigo-500 from-indigo-500 to-indigo-400/10",
+    emerald: "ring-emerald-400 from-emerald-500 to-emerald-400/10",
+    rose: "ring-rose-400 from-rose-500 to-rose-400/10",
+    amber: "ring-amber-400 from-amber-500 to-amber-400/10",
   }[accent]
   return (
     <div className={`rounded-xl p-4 ring-1 ${ring?.split(" ")[0]} bg-gradient-to-br ${ring?.split(" ").slice(1).join(" ")} backdrop-blur border border-white/10`}>
@@ -133,7 +133,7 @@ export default function Movements() {
   return (
     <main className="min-h-screen  space-y-6">
       <header className="rounded-xl p-6 bg-white border border-slate-200">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+        <h1 className="text-3xl font-bold flex items-center gap-2">
           <RefreshCw className="text-indigo-600" aria-hidden /> Movimentações
         </h1>
       </header>
