@@ -27,13 +27,13 @@ export default function useAlunos(){
   },[load]);
 
   const update = useCallback(async (id, payload)=>{
-    await api.patch(`/alunos/${id}`, payload);
+    await api.put(`/alunos/${id}`, payload);
     setToast("Aluno atualizado.");
     await load();
   },[load]);
 
   const setStatus = useCallback(async (id, status)=>{
-    await api.patch(`/alunos/${id}/status`, { status });
+    await api.delete(`/alunos/${id}`, { status });
     setToast("Status atualizado.");
     await load();
   },[load]);
