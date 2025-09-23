@@ -23,9 +23,11 @@ export function useMaterials() {
   const roles = decoded.roles || []
   const isAdmin = roles.includes("admin")
 
-  const categoryTemplates = (decoded.templates || []).filter(t => t.template_code === "manage_category")
+  const categoryTemplates = (decoded.templates || []).filter(
+    (t) => t.template_code === "manage_category"
+  )
   const allowedCategoryIds = categoryTemplates
-    .map(p => Number(p.resource_id))
+    .map((p) => Number(p.resource_id))
     .filter(Boolean)
 
   /** ===== Estados ===== */
@@ -41,6 +43,7 @@ export function useMaterials() {
   const [selectedType, setSelectedType] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("")
   const [stockFilter, setStockFilter] = useState("")
+  const [consumivelFilter, setConsumivelFilter] = useState("") // "", "sim", "não"
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 10
 
@@ -55,6 +58,7 @@ export function useMaterials() {
     mat_fk_tipo: "",
     mat_localizacao: "",
     mat_vendavel: "SIM",
+    mat_consumivel: "não",
   })
   const [formErrors, setFormErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -68,10 +72,10 @@ export function useMaterials() {
   const [deleteReason, setDeleteReason] = useState("")
   const [deleteErrors, setDeleteErrors] = useState({})
 
-  /** ===== Helpers de permissão (não-memoizados não causam loops) ===== */
+  /** ===== Helpers de permissão ===== */
   const canManageType = (tipoId) => {
     if (isAdmin) return true
-    const tipo = types.find(t => t.tipo_id === Number(tipoId))
+    const tipo = types.find((t) => t.tipo_id === Number(tipoId))
     return !!(tipo && allowedCategoryIds.includes(tipo.tipo_fk_categoria))
   }
   const canManageMaterial = (mat) => {
@@ -81,12 +85,17 @@ export function useMaterials() {
 
   const canView = isAdmin || allowedCategoryIds.length > 0
   const allowedTypeIds = useMemo(
-    () => types.filter(t => isAdmin || allowedCategoryIds.includes(t.tipo_fk_categoria)).map(t => t.tipo_id),
+    () =>
+      types
+        .filter(
+          (t) => isAdmin || allowedCategoryIds.includes(t.tipo_fk_categoria)
+        )
+        .map((t) => t.tipo_id),
     [types, isAdmin, allowedCategoryIds]
   )
   const canCreate = isAdmin || allowedTypeIds.length > 0
 
-  /** ===== Carregamento inicial (uma vez) ===== */
+  /** ===== Carregamento inicial ===== */
   useEffect(() => {
     let mounted = true
     const load = async () => {
@@ -96,25 +105,38 @@ export function useMaterials() {
       try {
         // 1) categorias
         const catRes = await api.get("/categorias")
-        const allCats = (catRes.data?.data ?? catRes.data ?? []).map(c => ({
-          cat_id: c.cat_id, cat_nome: c.cat_nome
+        const allCats = (catRes.data?.data ?? catRes.data ?? []).map((c) => ({
+          cat_id: c.cat_id,
+          cat_nome: c.cat_nome,
         }))
-        const cats = isAdmin ? allCats : allCats.filter(c => allowedCategoryIds.includes(c.cat_id))
+        const cats = isAdmin
+          ? allCats
+          : allCats.filter((c) => allowedCategoryIds.includes(c.cat_id))
 
         // 2) tipos
         const typRes = await api.get("/tipos")
-        const allTypes = (typRes.data?.data ?? typRes.data ?? []).map(t => ({
-          tipo_id: t.tipo_id, tipo_nome: t.tipo_nome, tipo_fk_categoria: t.tipo_fk_categoria
+        const allTypes = (typRes.data?.data ?? typRes.data ?? []).map((t) => ({
+          tipo_id: t.tipo_id,
+          tipo_nome: t.tipo_nome,
+          tipo_fk_categoria: t.tipo_fk_categoria,
         }))
-        const typs = isAdmin ? allTypes : allTypes.filter(t => allowedCategoryIds.includes(t.tipo_fk_categoria))
+        const typs = isAdmin
+          ? allTypes
+          : allTypes.filter((t) =>
+              allowedCategoryIds.includes(t.tipo_fk_categoria)
+            )
 
         // 3) materiais
         const matRes = await api.get("/materiais")
-        const list = Array.isArray(matRes.data?.data) ? matRes.data.data : matRes.data
-        const mats = isAdmin ? list : list.filter(m => {
-          const t = typs.find(tt => tt.tipo_id === m.mat_fk_tipo)
-          return !!t // só materiais cujo tipo é permitido
-        })
+        const list = Array.isArray(matRes.data?.data)
+          ? matRes.data.data
+          : matRes.data
+        const mats = isAdmin
+          ? list
+          : list.filter((m) => {
+              const t = typs.find((tt) => tt.tipo_id === m.mat_fk_tipo)
+              return !!t
+            })
 
         if (!mounted) return
         setCategories(cats)
@@ -128,18 +150,18 @@ export function useMaterials() {
       }
     }
     load()
-    return () => { mounted = false }
-    // deps vazias -> roda só na montagem; nada aqui muda identidade causando loop
+    return () => {
+      mounted = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** ===== Utilitários de (re)carregar materiais quando preciso ===== */
+  /** ===== (Re)carregar materiais ===== */
   const refetchMaterials = async () => {
     try {
       const res = await api.get("/materiais")
       const list = Array.isArray(res.data?.data) ? res.data.data : res.data
-      // filtra por permissão com base no types atual (estável enquanto não recarregamos tipos)
-      const mats = isAdmin ? list : list.filter(m => canManageMaterial(m))
+      const mats = isAdmin ? list : list.filter((m) => canManageMaterial(m))
       setMaterials(mats)
     } catch (e) {
       console.error(e)
@@ -150,16 +172,20 @@ export function useMaterials() {
   /** ===== Filtro client-side ===== */
   const filteredMaterials = useMemo(() => {
     const text = filterText.trim().toLowerCase()
-    return materials.filter(material => {
+    return materials.filter((material) => {
       const matchesText =
         material.mat_nome.toLowerCase().includes(text) ||
         (material.mat_descricao || "").toLowerCase().includes(text)
 
-      const matchesType = !selectedType || String(material.mat_fk_tipo) === String(selectedType)
+      const matchesType =
+        !selectedType ||
+        String(material.mat_fk_tipo) === String(selectedType)
 
-      const mType = types.find(t => t.tipo_id === material.mat_fk_tipo)
+      const mType = types.find((t) => t.tipo_id === material.mat_fk_tipo)
       const matchesCategory =
-        !selectedCategory || (mType && String(mType.tipo_fk_categoria) === String(selectedCategory))
+        !selectedCategory ||
+        (mType &&
+          String(mType.tipo_fk_categoria) === String(selectedCategory))
 
       const qty = Number(material.mat_quantidade_estoque)
       const min = Number(material.mat_estoque_minimo)
@@ -168,9 +194,26 @@ export function useMaterials() {
         (stockFilter === "low" && qty < min) ||
         (stockFilter === "normal" && qty >= min)
 
-      return matchesText && matchesType && matchesCategory && matchesStock
+      const matchesConsumivel =
+        !consumivelFilter || material.mat_consumivel === consumivelFilter
+
+      return (
+        matchesText &&
+        matchesType &&
+        matchesCategory &&
+        matchesStock &&
+        matchesConsumivel
+      )
     })
-  }, [materials, types, filterText, selectedType, selectedCategory, stockFilter])
+  }, [
+    materials,
+    types,
+    filterText,
+    selectedType,
+    selectedCategory,
+    stockFilter,
+    consumivelFilter,
+  ])
 
   // paginação
   const totalPages = Math.max(1, Math.ceil(filteredMaterials.length / pageSize))
@@ -180,7 +223,9 @@ export function useMaterials() {
   }, [filteredMaterials, currentPage])
 
   // reset de página ao mudar filtros
-  useEffect(() => { setCurrentPage(1) }, [filterText, selectedType, selectedCategory, stockFilter])
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterText, selectedType, selectedCategory, stockFilter, consumivelFilter])
 
   /** ===== Form ===== */
   const validateForm = () => {
@@ -193,14 +238,20 @@ export function useMaterials() {
       errors.mat_fk_tipo = "Sem permissão para este tipo"
     }
 
-    if (!formData.mat_localizacao) errors.mat_localizacao = "Localização é obrigatória"
-    if (isNaN(Number(formData.mat_preco)) || Number(formData.mat_preco) < 0) errors.mat_preco = "Preço inválido"
+    if (!formData.mat_localizacao)
+      errors.mat_localizacao = "Localização é obrigatória"
+    if (
+      isNaN(Number(formData.mat_preco)) ||
+      Number(formData.mat_preco) < 0
+    )
+      errors.mat_preco = "Preço inválido"
 
     const q = Number(formData.mat_quantidade_estoque)
     if (isNaN(q) || q < 0) errors.mat_quantidade_estoque = "Quantidade inválida"
 
     const min = Number(formData.mat_estoque_minimo)
-    if (isNaN(min) || min < 0) errors.mat_estoque_minimo = "Estoque mínimo inválido"
+    if (isNaN(min) || min < 0)
+      errors.mat_estoque_minimo = "Estoque mínimo inválido"
 
     setFormErrors(errors)
     return Object.keys(errors).length === 0
@@ -217,6 +268,7 @@ export function useMaterials() {
         mat_quantidade_estoque: Number(formData.mat_quantidade_estoque),
         mat_estoque_minimo: Number(formData.mat_estoque_minimo),
         mat_fk_tipo: Number(formData.mat_fk_tipo),
+        // mat_consumivel já está "sim"/"não"
       }
       if (editingId) {
         await api.put(`/materiais/${editingId}`, payload)
@@ -249,6 +301,7 @@ export function useMaterials() {
       mat_fk_tipo: mat.mat_fk_tipo,
       mat_localizacao: mat.mat_localizacao,
       mat_vendavel: mat.mat_vendavel,
+      mat_consumivel: mat.mat_consumivel ?? "não",
     })
   }
 
@@ -262,6 +315,7 @@ export function useMaterials() {
       mat_fk_tipo: "",
       mat_localizacao: "",
       mat_vendavel: "SIM",
+      mat_consumivel: "não",
     })
     setFormErrors({})
     setShowForm(false)
@@ -293,8 +347,10 @@ export function useMaterials() {
     const estoqueAtual = Number(deleteTarget?.mat_quantidade_estoque) || 0
     const q = Number(deleteQty)
     if (!Number.isFinite(q) || q <= 0) errs.qty = "Quantidade inválida."
-    else if (q > estoqueAtual) errs.qty = `Quantidade maior que o estoque disponível (${estoqueAtual}).`
-    if (!deleteReason || deleteReason.trim().length < 3) errs.reason = "Descreva o motivo (mín. 3 caracteres)."
+    else if (q > estoqueAtual)
+      errs.qty = `Quantidade maior que o estoque disponível (${estoqueAtual}).`
+    if (!deleteReason || deleteReason.trim().length < 3)
+      errs.reason = "Descreva o motivo (mín. 3 caracteres)."
     setDeleteErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -329,30 +385,60 @@ export function useMaterials() {
 
   return {
     // permissões
-    isAdmin, canView, canCreate, canManageMaterial,
-    allowedCategoryIds, allowedTypeIds,
+    isAdmin,
+    canView,
+    canCreate,
+    canManageMaterial,
+    allowedCategoryIds,
+    allowedTypeIds,
 
     // dados/erro/loading
-    categories, types, materials, loading, error,
+    categories,
+    types,
+    materials,
+    loading,
+    error,
 
     // filtros/paginação
-    filterText, setFilterText,
-    selectedType, setSelectedType,
-    selectedCategory, setSelectedCategory,
-    stockFilter, setStockFilter,
-    currentPage, setCurrentPage, totalPages,
-    filteredMaterials, pageMaterials,
+    filterText,
+    setFilterText,
+    selectedType,
+    setSelectedType,
+    selectedCategory,
+    setSelectedCategory,
+    stockFilter,
+    setStockFilter,
+    consumivelFilter,
+    setConsumivelFilter,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    filteredMaterials,
+    pageMaterials,
 
     // form
-    showForm, setShowForm,
-    formData, setFormData,
-    formErrors, isSubmitting, editingId,
-    handleSubmit, handleEdit, resetForm,
+    showForm,
+    setShowForm,
+    formData,
+    setFormData,
+    formErrors,
+    isSubmitting,
+    editingId,
+    handleSubmit,
+    handleEdit,
+    resetForm,
 
     // remoção
-    deleteOpen, deleteTarget, deleteMode,
-    deleteQty, setDeleteQty,
-    deleteReason, setDeleteReason,
-    deleteErrors, openDeleteModal, closeDeleteModal, handleConfirmDelete,
+    deleteOpen,
+    deleteTarget,
+    deleteMode,
+    deleteQty,
+    setDeleteQty,
+    deleteReason,
+    setDeleteReason,
+    deleteErrors,
+    openDeleteModal,
+    closeDeleteModal,
+    handleConfirmDelete,
   }
 }
