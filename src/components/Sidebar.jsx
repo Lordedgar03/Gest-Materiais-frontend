@@ -169,7 +169,7 @@ export default function Sidebar({ open, setOpen }) {
           { path: "/almoco",        icon: UtensilsCrossed, label: "Almoço",        perm: { module: "venda", action: "visualizar" } },
           { path: "/alunos",        icon: GraduationCap,   label: "Alunos",        perm: { module: "venda", action: "visualizar" } },
           { path: "/marcacoes",     icon: CalendarCheck2,  label: "Marcações",     perm: { module: "venda", action: "visualizar" } },
-          { path: "/configuracoes", icon: Settings2,       label: "Configurações", perm: { module: "venda", action: "visualizar" } },
+       //   { path: "/configuracoes", icon: Settings2,       label: "Configurações", perm: { module: "venda", action: "visualizar" } },
         ],
       },
       {

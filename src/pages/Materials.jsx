@@ -163,7 +163,7 @@ function MaterialFormModal({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Preço (€)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Preço (STN)</label>
           <input
             type="number"
             step="0.01"
@@ -731,7 +731,7 @@ export default function Materials() {
                             <div className="text-xs text-slate-500 truncate max-w-xs">{mat.mat_descricao}</div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-900">€ {Number(mat.mat_preco).toFixed(2)}</td>
+                        <td className="px-6 py-4 text-sm text-slate-900">STN {Number(mat.mat_preco).toFixed(2)}</td>
                         <td className="px-6 py-4">
                           <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${

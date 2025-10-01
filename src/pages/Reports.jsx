@@ -266,12 +266,12 @@ export default function Reports() {
         "Grupo": g.grupo ?? "Não definido",
         "Itens": Number(g.itens||0),
         "Quantidade": Number(g.quantidade||0),
-        "Valor em estoque (€)": Number(g.valor_estoque||0).toFixed(2),
+        "Valor em estoque (STN)": Number(g.valor_estoque||0).toFixed(2),
       }));
       const tot = [{
         "Total Itens": Number(estoque?.total?.itens||0),
         "Total Qtd": Number(estoque?.total?.quantidade||0),
-        "Total (€)": Number(estoque?.total?.valor_estoque||0).toFixed(2),
+        "Total (STN)": Number(estoque?.total?.valor_estoque||0).toFixed(2),
       }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Estoque (grupos)");
@@ -296,12 +296,12 @@ export default function Reports() {
         "Categoria": r.categoria_nome ?? "Sem categoria",
         "Local": r.mat_localizacao ?? "Sem localização",
         "Quantidade": Number(r.mat_quantidade_estoque||0),
-        "Preço (€)": Number(r.mat_preco||0).toFixed(2),
-        "Valor em estoque (€)": Number(r.valor_estoque || (Number(r.mat_quantidade_estoque||0)*Number(r.mat_preco||0))).toFixed(2),
+        "Preço (STN)": Number(r.mat_preco||0).toFixed(2),
+        "Valor em estoque (STN)": Number(r.valor_estoque || (Number(r.mat_quantidade_estoque||0)*Number(r.mat_preco||0))).toFixed(2),
       }));
       const tot = [{
         "Total Qtd": Number(det?.total?.quantidade||0),
-        "Total (€)": Number(det?.total?.valor_estoque||0).toFixed(2),
+        "Total (STN)": Number(det?.total?.valor_estoque||0).toFixed(2),
       }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Materiais (detalhe)");
@@ -317,9 +317,9 @@ export default function Reports() {
       setExpVen(true);
       const linhas = (ven?.porMes || []).map(m => ({
         "Mês": `${String(m.mes).padStart(2,"0")} - ${MESES_NOMES[(m.mes-1)%12]}`,
-        "Total (€)": Number(m.valor||0).toFixed(2),
+        "Total (STN)": Number(m.valor||0).toFixed(2),
       }));
-      const tot = [{ "Ano": ven?.ano ?? ano, "Arrecadado (€)": Number(ven?.total||0).toFixed(2) }];
+      const tot = [{ "Ano": ven?.ano ?? ano, "Arrecadado (STN)": Number(ven?.total||0).toFixed(2) }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Por mês");
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tot), "Total do ano");
@@ -415,7 +415,7 @@ export default function Reports() {
           />
           <KPI 
             label="Valor em Estoque" 
-            value={`€${kpisMat.valor.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
+            value={`STN${kpisMat.valor.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
             icon={DollarSign}
             color="purple"
           />
@@ -495,8 +495,8 @@ export default function Reports() {
                               <Th>Categoria</Th>
                               <Th>Localização</Th>
                               <Th className="text-right">Quantidade</Th>
-                              <Th className="text-right">Preço (€)</Th>
-                              <Th className="text-right">Valor Total (€)</Th>
+                              <Th className="text-right">Preço (STN)</Th>
+                              <Th className="text-right">Valor Total (STN)</Th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200/50 dark:divide-gray-700/50">
@@ -507,15 +507,15 @@ export default function Reports() {
                                 <Td>{r.categoria_nome ?? "Sem categoria"}</Td>
                                 <Td>{r.mat_localizacao ?? "Sem localização"}</Td>
                                 <Td className="text-right font-mono">{Number(r.mat_quantidade_estoque||0).toLocaleString()}</Td>
-                                <Td className="text-right font-mono">€{Number(r.mat_preco||0).toFixed(2)}</Td>
-                                <Td className="text-right font-mono font-semibold">€{Number(r.valor_estoque||0).toFixed(2)}</Td>
+                                <Td className="text-right font-mono">STN{Number(r.mat_preco||0).toFixed(2)}</Td>
+                                <Td className="text-right font-mono font-semibold">STN{Number(r.valor_estoque||0).toFixed(2)}</Td>
                               </tr>
                             ))}
                             <tr className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 font-bold">
                               <Td colSpan={4} className="font-semibold">Subtotal do grupo</Td>
                               <Td className="text-right font-mono">{tot.qtd.toLocaleString()}</Td>
                               <Td className="text-right">—</Td>
-                              <Td className="text-right font-mono">€{tot.val.toFixed(2)}</Td>
+                              <Td className="text-right font-mono">STN{tot.val.toFixed(2)}</Td>
                             </tr>
                           </tbody>
                         </table>
@@ -530,7 +530,7 @@ export default function Reports() {
                   <span>Total Geral</span>
                   <div className="flex gap-8">
                     <span>Quantidade: {Number(det?.total?.quantidade||0).toLocaleString()}</span>
-                    <span>Valor: €{Number(det?.total?.valor_estoque||0).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</span>
+                    <span>Valor: STN{Number(det?.total?.valor_estoque||0).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               </div>
@@ -573,13 +573,13 @@ export default function Reports() {
           />
           <KPI 
             label="Total Arrecadado" 
-            value={`€${Number(ven?.total||0).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
+            value={`STN${Number(ven?.total||0).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
             icon={DollarSign}
             color="green"
           />
           <KPI 
             label="Média Mensal" 
-            value={`€${(Number(ven?.total||0)/12).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
+            value={`STN${(Number(ven?.total||0)/12).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
             icon={TrendingUp}
             color="purple"
           />
@@ -609,7 +609,7 @@ export default function Reports() {
                 <thead className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700">
                   <tr>
                     <Th>Mês</Th>
-                    <Th className="text-right">Vendas (€)</Th>
+                    <Th className="text-right">Vendas (STN)</Th>
                     <Th className="text-right">% do Total</Th>
                   </tr>
                 </thead>
@@ -624,14 +624,14 @@ export default function Reports() {
                             {`${String(m.mes).padStart(2,"0")} - ${MESES_NOMES[(m.mes-1)%12]}`}
                           </div>
                         </Td>
-                        <Td className="text-right font-mono">€{Number(m.valor||0).toFixed(2)}</Td>
+                        <Td className="text-right font-mono">STN{Number(m.valor||0).toFixed(2)}</Td>
                         <Td className="text-right font-mono text-gray-600 dark:text-gray-400">{percentage.toFixed(1)}%</Td>
                       </tr>
                     );
                   })}
                   <tr className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 font-bold text-lg">
                     <Td className="font-bold">Total do Ano</Td>
-                    <Td className="text-right font-mono">€{Number(ven?.total||0).toFixed(2)}</Td>
+                    <Td className="text-right font-mono">STN{Number(ven?.total||0).toFixed(2)}</Td>
                     <Td className="text-right font-mono">100%</Td>
                   </tr>
                 </tbody>

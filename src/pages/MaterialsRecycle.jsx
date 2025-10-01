@@ -84,7 +84,7 @@ function MaterialsRecycle() {
               <th className="p-2">Código</th>
               <th className="p-2">Nome</th>
               <th className="p-2">Descrição</th>
-              <th className="p-2">Preço (€)</th>
+              <th className="p-2">Preço (STN)</th>
               <th className="p-2">Qtd</th>
               <th className="p-2">Ações</th>
             </tr>
@@ -95,7 +95,7 @@ function MaterialsRecycle() {
                 <td className="p-2">{mat.mat_id_material}</td>
                 <td className="p-2">{mat.mat_nome}</td>
                 <td className="p-2">{mat.mat_descricao}</td>
-                <td className="p-2">€ {Number(mat.mat_preco).toFixed(2)}</td>
+                <td className="p-2">STN {Number(mat.mat_preco).toFixed(2)}</td>
                 <td className="p-2">{mat.mat_quantidade_estoque}</td>
                 <td className="p-2 flex gap-2">
                   <button onClick={() => handleRestore(mat.mat_id_material)} className="text-green-600 hover:text-green-800">

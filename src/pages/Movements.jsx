@@ -208,8 +208,8 @@ export default function Movements() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br ">
+      <div className="mx-auto px-4 py-4 sm:px-4 lg:px-4">
         {/* Header melhorado */}
         <div className="mb-8">
           <div className="flex items-center justify-between">
@@ -223,14 +223,7 @@ export default function Movements() {
               <p className="mt-2 text-lg text-gray-600">Gerencie e monitore todas as movimentações de estoque</p>
             </div>
             <div className="flex items-center gap-3">
-              <button className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-300 hover:bg-gray-50 transition-colors">
-                <Download className="h-4 w-4" />
-                Exportar
-              </button>
-              <button className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 transition-colors">
-                <Plus className="h-4 w-4" />
-                Nova Movimentação
-              </button>
+              
             </div>
           </div>
         </div>
@@ -430,7 +423,7 @@ export default function Movements() {
                         active={sortField === "mov_preco"}
                         dir={sortDirection}
                       >
-                        Preço (€)
+                        Preço (STN)
                       </Th>
                       <Th onClick={() => handleSort("mov_data")} active={sortField === "mov_data"} dir={sortDirection}>
                         Data
@@ -474,7 +467,7 @@ export default function Movements() {
                           <div className="max-w-xs truncate">{mov.mov_descricao || "—"}</div>
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-sm font-medium text-gray-900">
-                          € {Number(mov.mov_preco).toFixed(2)}
+                          STN {Number(mov.mov_preco).toFixed(2)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-500">
                           <div className="flex flex-col">
@@ -598,10 +591,10 @@ export default function Movements() {
                 <InfoCard label="Produto" value={detail.mov_material_nome ?? getMaterialName(detail.mov_fk_material)} />
                 <InfoCard label="Código da Movimentação" value={`#${detail.mov_id}`} />
                 <InfoCard label="Quantidade" value={detail.mov_quantidade.toLocaleString()} />
-                <InfoCard label="Preço Unitário" value={`€ ${Number(detail.mov_preco).toFixed(2)}`} />
+                <InfoCard label="Preço Unitário" value={`STN ${Number(detail.mov_preco).toFixed(2)}`} />
                 <InfoCard
                   label="Valor Total"
-                  value={`€ ${(Number(detail.mov_preco) * Number(detail.mov_quantidade || 0)).toFixed(2)}`}
+                  value={`STN ${(Number(detail.mov_preco) * Number(detail.mov_quantidade || 0)).toFixed(2)}`}
                 />
                 <InfoCard
                   label="Data e Hora"
