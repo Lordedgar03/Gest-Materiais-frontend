@@ -64,11 +64,26 @@ export function useRequisicao() {
   const isAdmin = rolesLS.includes("admin");
 
   const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
+
+  // manage_category (global ou por categoria)
   const allowedCategoryIds = templates
     .filter((t) => t.template_code === "manage_category" && t.resource_id != null)
     .map((t) => Number(t.resource_id))
     .filter(Boolean);
-  const hasGlobalManageCategory = templates.some((t) => t.template_code === "manage_category" && t.resource_id == null);
+  const hasGlobalManageCategory = templates.some(
+    (t) => t.template_code === "manage_category" && t.resource_id == null
+  );
+
+  // manage_sales pode vir em templates OU em decoded.permissoes
+  const hasManageSales =
+    templates.some(t => t.template_code === "manage_sales") ||
+    (Array.isArray(decoded.permissoes) &&
+      decoded.permissoes.some(p =>
+        typeof p === "string"
+          ? p === "manage_sales"
+          : p?.acao === "manage_sales" || p?.code === "manage_sales" || p?.permissao === "manage_sales"
+      ));
+
   const hasManageCategory = hasGlobalManageCategory || allowedCategoryIds.length > 0;
 
   // ===== Estados =====
@@ -112,12 +127,16 @@ export function useRequisicao() {
     return t ? Number(t.tipo_fk_categoria) : null;
   };
 
-  // ✅ NOVO: helper para identificar material consumível (apenas este trecho é a correção)
   const isConsumivel = (matId) => {
     const m = materialById(Number(matId));
-    // Ajuste a propriedade conforme seu schema (string "SIM"/"NAO", boolean, etc.)
-    const flag = (m?.mat_consumivel ?? m?.consumivel ?? "").toString().toLowerCase();
+    const flag = (m?.mat_consumivel ?? m?.consumivel ?? "").toString().toLowerCase().trim();
     return flag === "sim" || flag === "true" || flag === "1";
+  };
+
+  const isVendavel = (matId) => {
+    const m = materialById(Number(matId));
+    const flag = (m?.mat_vendavel ?? m?.vendavel ?? "").toString().toUpperCase().trim();
+    return flag === "SIM" || flag === "TRUE" || flag === "1";
   };
 
   // --- Helpers de usuário/solicitante ---
@@ -126,7 +145,13 @@ export function useRequisicao() {
     Number(req?.req_fk_user ?? req?.user_id ?? req?.req_user_id ?? req?.req_fk_utilizador ?? 0);
   const solicitanteNome = (req) => {
     const direto =
-      req?.user?.nome || req?.user?.name || req?.usuario?.nome || req?.usuario?.name || req?.req_user_nome || req?.req_user_name || null;
+      req?.user?.nome ||
+      req?.user?.name ||
+      req?.usuario?.nome ||
+      req?.usuario?.name ||
+      req?.req_user_nome ||
+      req?.req_user_name ||
+      null;
     if (direto) return direto;
     const id = solicitanteId(req);
     if (!id) return null;
@@ -134,22 +159,37 @@ export function useRequisicao() {
     return u?.nome || u?.name || u?.username || null;
   };
 
-  const canOperateReq = (req) => {
+  // ====== Regras / visibilidade ======
+  const _reqItems = (req) => (Array.isArray(req?.itens) ? req.itens : []);
+  const _hasVendavel = (req) => _reqItems(req).some((it) => isVendavel(it.rqi_fk_material));
+
+  const _itemCategoryOK = (it) => {
     if (hasGlobalManageCategory) return true;
     if (!allowedCategoryIds.length) return false;
-    const items = Array.isArray(req.itens) ? req.itens : [];
-    if (!items.length) return false;
-    for (const it of items) {
-      const matId = Number(it.rqi_fk_material ?? it.mat_id ?? 0);
-      const mat = materialById(matId);
-      if (!mat) return false;
-      const catId = categoriaIdDoMaterial(mat);
-      if (!catId || !allowedCategoryIds.includes(Number(catId))) return false;
-    }
-    return true;
+    const mat = materialById(Number(it?.rqi_fk_material ?? it?.mat_id ?? 0));
+    if (!mat) return false;
+    const catId = categoriaIdDoMaterial(mat);
+    return !!(catId && allowedCategoryIds.includes(Number(catId)));
   };
-  const canDecideReq = (req) => canOperateReq(req);
 
+  const canOperateReq = (req, item) => {
+    const items = _reqItems(req);
+    if (!items.length) return false;
+
+    // Decisão por ITEM
+    if (item) {
+      return isVendavel(item.rqi_fk_material)
+        ? !!hasManageSales
+        : _itemCategoryOK(item);
+    }
+
+    // Sem item (no card): pode operar se existir pelo menos 1 item que ele realmente possa operar
+    return items.some(it => isVendavel(it.rqi_fk_material) ? !!hasManageSales : _itemCategoryOK(it));
+  };
+
+  const canDecideReq = (req, item) => canOperateReq(req, item);
+
+  // Aprovador (opcional)
   const aprovadorPorReq = useMemo(() => {
     const map = new Map();
     for (const d of decisoes) {
@@ -168,10 +208,15 @@ export function useRequisicao() {
   // ===== Fetch =====
   const refetchRequisicoes = async () => {
     const rr = await api.get("/requisicoes", { params: { includeItems: true, includeDecisions: true } });
+    
     const list = normalizeList(rr).map((r) => {
       const rr2 = r && r.toJSON ? r.toJSON() : (r?.dataValues ? r.dataValues : r);
-      const items = Array.isArray(rr2.itens) ? rr2.itens.map((it) => (it?.toJSON ? it.toJSON() : (it?.dataValues ?? it))) : [];
-      const decs = Array.isArray(rr2.decisoes) ? rr2.decisoes.map((d) => (d?.toJSON ? d.toJSON() : (d?.dataValues ?? d))) : [];
+      const items = Array.isArray(rr2.itens)
+        ? rr2.itens.map((it) => (it?.toJSON ? it.toJSON() : (it?.dataValues ?? it)))
+        : [];
+      const decs = Array.isArray(rr2.decisoes)
+        ? rr2.decisoes.map((d) => (d?.toJSON ? d.toJSON() : (d?.dataValues ?? d)))
+        : [];
       return { ...rr2, itens: items, decisoes: decs };
     });
     setRequisicoes(list);
@@ -195,13 +240,19 @@ export function useRequisicao() {
         const rawReqs = normalizeList(reqRes);
         const reqs = rawReqs.map((r) => {
           const rr = r && r.toJSON ? r.toJSON() : (r?.dataValues ? r.dataValues : r);
-          const items = Array.isArray(rr.itens) ? rr.itens.map((it) => (it?.toJSON ? it.toJSON() : (it?.dataValues ?? it))) : [];
-          const decs = Array.isArray(rr.decisoes) ? rr.decisoes.map((d) => (d?.toJSON ? d.toJSON() : (d?.dataValues ?? d))) : [];
+          const items = Array.isArray(rr.itens)
+            ? rr.itens.map((it) => (it?.toJSON ? it.toJSON() : (it?.dataValues ?? it)))
+            : [];
+          const decs = Array.isArray(rr.decisoes)
+            ? rr.decisoes.map((d) => (d?.toJSON ? d.toJSON() : (d?.dataValues ?? d)))
+            : [];
           return { ...rr, itens: items, decisoes: decs };
         });
         const mats = Array.isArray(matRes?.data) ? matRes.data : (matRes?.data?.data || []);
         const tps = Array.isArray(tipoRes?.data) ? tipoRes.data : (tipoRes?.data?.data || []);
-        const usersData = usersRes ? (Array.isArray(usersRes?.data) ? usersRes.data : (usersRes?.data?.data || [])) : [];
+        const usersData = usersRes
+          ? (Array.isArray(usersRes?.data) ? usersRes.data : (usersRes?.data?.data || []))
+          : [];
 
         if (!mounted) return;
         setRequisicoes(reqs);
@@ -221,9 +272,7 @@ export function useRequisicao() {
       }
     };
     fetchAll();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -315,8 +364,8 @@ export function useRequisicao() {
       setError("Não há quantidade restante para atender.");
       return;
     }
-    if (!canOperateReq(req)) {
-      setError("Sem permissão para atender esta requisição.");
+    if (!canOperateReq(req, item)) {
+      setError("Sem permissão para atender este item.");
       return;
     }
     setUiModal({ open: true, kind: "atender", payload: { reqId: req.req_id, itemId: item.rqi_id, restante } });
@@ -333,8 +382,12 @@ export function useRequisicao() {
       setError("Nada a devolver.");
       return;
     }
-    if (!isAprovadorDaRequisicao(req)) {
-      setError("Apenas o aprovador pode aprovar a devolução.");
+    if (isVendavel(item?.rqi_fk_material)) {
+      setError("Material vendável não pode ser devolvido.");
+      return;
+    }
+    if (!canOperateReq(req, item)) {
+      setError("Sem permissão para aprovar a devolução.");
       return;
     }
     setUiModal({ open: true, kind: "devolver", payload: { reqId: req.req_id, itemId: item.rqi_id, emUso } });
@@ -427,22 +480,54 @@ export function useRequisicao() {
   // ===== Lista base / filtros =====
   const baseList = useMemo(() => {
     return requisicoes.filter((r) => {
-      const fk = r.req_fk_user ?? r.user_id ?? null;
-      if (hasManageCategory) return true;
-      return fk ? Number(fk) === Number(currentUser.id) : true;
+      // todos veem as próprias
+      const fk = Number(r.req_fk_user ?? r.user_id ?? 0);
+      const isOwner = fk === Number(currentUser.id);
+      if (isOwner) return true;
+
+      // manage_category (global ou por recurso) vê tudo
+      if (hasGlobalManageCategory || allowedCategoryIds.length) return true;
+
+      // manage_sales vê requisições com pelo menos 1 item vendável
+      if (hasManageSales) return _hasVendavel(r);
+
+      return false;
     });
-  }, [requisicoes, hasManageCategory, currentUser.id]);
+  }, [
+    requisicoes,
+    hasGlobalManageCategory,
+    allowedCategoryIds.length,
+    hasManageSales,
+    currentUser.id,
+  ]);
 
   const filtered = useMemo(() => {
-    return baseList.filter((r) => {
+  const byIdDesc = (a, b) => {
+    const ida = Number(a.req_id ?? 0);
+    const idb = Number(b.req_id ?? 0);
+    if (idb !== ida) return idb - ida;
+
+    // fallback estável quando não houver req_id
+    const da = new Date(a.createdAt || a.req_date || 0).getTime();
+    const db = new Date(b.createdAt || b.req_date || 0).getTime();
+    return db - da;
+  };
+
+  return baseList
+    .filter((r) => {
       const okStatus = filterStatus === "Todos" || r.req_status === filterStatus;
       const okMaterial =
         filterMaterial === "Todos"
           ? true
-          : Array.isArray(r.itens) && r.itens.some((it) => Number(it.rqi_fk_material) === Number(filterMaterial));
+          : Array.isArray(r.itens) &&
+            r.itens.some(
+              (it) => Number(it.rqi_fk_material) === Number(filterMaterial)
+            );
       return okStatus && okMaterial;
-    });
-  }, [baseList, filterStatus, filterMaterial]);
+    })
+    .sort(byIdDesc); // 👈 força DESC
+}, [baseList, filterStatus, filterMaterial]);
+
 
   return {
     // identidade/perms
@@ -496,7 +581,8 @@ export function useRequisicao() {
     materialNome,
     solicitanteNome,
     solicitanteId,
-    isConsumivel, // ✅ NOVO: exposto para o componente
+    isConsumivel,
+    isVendavel,
     // modais + ações
     uiModal,
     closeModal,

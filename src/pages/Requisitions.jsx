@@ -29,12 +29,12 @@ function parseDateSafe(dt) {
   return Number.isNaN(d.getTime())
     ? "—"
     : d.toLocaleString("pt-PT", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 }
 
 function Modal({
@@ -138,11 +138,15 @@ function ReqCard({
   solicitanteId,
   isAdmin,
   isConsumivel,
+  // ✅ novo prop
+  isVendavel,
 }) {
   const codigo = req.req_codigo ?? req.codigo ?? `#${req.req_id ?? "?"}`;
   const itensCount = Array.isArray(req.itens) ? req.itens.length : 0;
 
-  const mayOperate = canOperateReq(req);
+  const firstItem = Array.isArray(req.itens) && req.itens.length ? req.itens[0] : null;
+
+ const mayOperate = canOperateReq(req, firstItem);
   const mayDecide = canDecideReq(req);
 
   const status = String(req.req_status || "").trim();
@@ -155,8 +159,6 @@ function ReqCard({
   const ownerId = Number(req.req_fk_user ?? req.user_id ?? 0);
   const isOwner = ownerId && Number(ownerId) === Number(currentUser.id);
 
-  const firstItem =
-    Array.isArray(req.itens) && req.itens.length ? req.itens[0] : null;
 
   let restante = 0;
   let emUso = 0;
@@ -179,19 +181,27 @@ function ReqCard({
   const canAtender =
     !isRejectedOrCanceled && statusAllowsServe && restante > 0 && mayOperate;
 
-  // Fix: Check if isConsumivel is a function before calling it
+  // checks defensivos
   const firstIsConsumivel = !!(
     firstItem &&
     typeof isConsumivel === "function" &&
     isConsumivel(firstItem.rqi_fk_material)
   );
+  const firstIsVendavel = !!(
+    firstItem &&
+    typeof isVendavel === "function" &&
+    isVendavel(firstItem.rqi_fk_material)
+  );
+
+  // ❗ Devolver bloqueado para consumíveis e vendáveis
   const canDevolver =
     !isRejectedOrCanceled &&
     statusAllowsReturn &&
     emUso > 0 &&
     mayOperate &&
     !!firstItem &&
-    !firstIsConsumivel;
+    !firstIsConsumivel &&
+    !firstIsVendavel;
 
   const canDeleteBtn = isOwner || mayDecide;
 
@@ -391,9 +401,8 @@ function ReqCard({
                   <ChevronDown
                     size={14}
                     aria-hidden
-                    className={`${
-                      moreOpen ? "rotate-180" : ""
-                    } transition-transform`}
+                    className={`${moreOpen ? "rotate-180" : ""
+                      } transition-transform`}
                   />
                 </button>
                 {moreOpen && (
@@ -479,6 +488,8 @@ export default function Requisitions() {
     solicitanteId,
     isAdmin,
     isConsumivel,
+    // ✅ trazer do hook
+    isVendavel,
   } = useRequisicao();
 
   const [q, setQ] = useState("");
@@ -486,21 +497,36 @@ export default function Requisitions() {
   const [viewReq, setViewReq] = useState(null);
 
   const list = useMemo(() => {
+    const byIdDesc = (a, b) => {
+      const ida = Number(a.req_id ?? 0);
+      const idb = Number(b.req_id ?? 0);
+      if (idb !== ida) return idb - ida;
+      const da = new Date(a.createdAt || a.req_date || 0).getTime();
+      const db = new Date(b.createdAt || b.req_date || 0).getTime();
+      return db - da;
+    };
+
     const term = q.trim().toLowerCase();
-    if (!term) return filtered;
-    return filtered.filter((req) => {
-      const code = (req.req_codigo ?? req.codigo ?? `#${req.req_id ?? ""}`)
-        .toString()
-        .toLowerCase();
-      const matchCode = code.includes(term);
-      const matchItem =
-        Array.isArray(req.itens) &&
-        req.itens.some((it) =>
-          (materialNome(it.rqi_fk_material) || "").toLowerCase().includes(term)
-        );
-      return matchCode || matchItem;
-    });
+    if (!term) return [...filtered].sort(byIdDesc);
+
+    return filtered
+      .filter((req) => {
+        const code = (req.req_codigo ?? req.codigo ?? `#${req.req_id ?? ""}`)
+          .toString()
+          .toLowerCase();
+        const matchCode = code.includes(term);
+        const matchItem =
+          Array.isArray(req.itens) &&
+          req.itens.some((it) =>
+            (materialNome(it.rqi_fk_material) || "")
+              .toLowerCase()
+              .includes(term)
+          );
+        return matchCode || matchItem;
+      })
+      .sort(byIdDesc); // 👈 mantém DESC mesmo pesquisando
   }, [filtered, q, materialNome]);
+
 
   if (loading && list.length === 0) {
     return (
@@ -689,6 +715,8 @@ export default function Requisitions() {
                       solicitanteId={solicitanteId}
                       isAdmin={isAdmin}
                       isConsumivel={isConsumivel}
+                      // ✅ passar para o card
+                      isVendavel={isVendavel}
                     />
                   ))}
                 </div>
@@ -1139,9 +1167,8 @@ export default function Requisitions() {
       <Modal
         open={viewOpen}
         onClose={() => setViewOpen(false)}
-        title={`Detalhes da Requisição — ${
-          viewReq?.req_codigo ?? viewReq?.codigo ?? `#${viewReq?.req_id ?? ""}`
-        }`}
+        title={`Detalhes da Requisição — ${viewReq?.req_codigo ?? viewReq?.codigo ?? `#${viewReq?.req_id ?? ""}`
+          }`}
         maxWidth="max-w-6xl"
       >
         {viewReq ? (
@@ -1168,8 +1195,8 @@ export default function Requisitions() {
                 <div className="font-medium text-gray-900 dark:text-white">
                   {parseDateSafe(
                     viewReq.createdAt ||
-                      viewReq.req_created_at ||
-                      viewReq.req_date
+                    viewReq.req_created_at ||
+                    viewReq.req_date
                   )}
                 </div>
               </div>
@@ -1234,16 +1261,14 @@ export default function Requisitions() {
                       const canServe =
                         ["Aprovada", "Parcial", "Em Uso"].includes(reqStatus) &&
                         restante > 0 &&
-                        canOperateReq(viewReq);
+                        canOperateReq(viewReq, it);
+
                       const canReturn =
                         ["Em Uso", "Parcial", "Atendida"].includes(reqStatus) &&
                         emUso > 0 &&
-                        canOperateReq(viewReq) &&
-                        !(
-                          typeof isConsumivel === "function" &&
-                          isConsumivel(it.rqi_fk_material)
-                        );
-
+                        canOperateReq(viewReq, it) &&
+                        !(isConsumivel?.(it.rqi_fk_material)) &&
+                        !(isVendavel?.(it.rqi_fk_material));
                       return (
                         <tr
                           key={it.rqi_id ?? i}
@@ -1315,33 +1340,33 @@ export default function Requisitions() {
             {(viewReq.req_justificativa ||
               viewReq.req_observacoes ||
               viewReq.req_local_entrega) && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6 bg-gradient-to-br from-gray-50/80 to-white/80 dark:from-gray-700/50 dark:to-gray-800/50 rounded-xl">
-                <div>
-                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                    Local de entrega
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6 bg-gradient-to-br from-gray-50/80 to-white/80 dark:from-gray-700/50 dark:to-gray-800/50 rounded-xl">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                      Local de entrega
+                    </div>
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {viewReq.req_local_entrega || "—"}
+                    </div>
                   </div>
-                  <div className="font-medium text-gray-900 dark:text-white">
-                    {viewReq.req_local_entrega || "—"}
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                      Justificativa
+                    </div>
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {viewReq.req_justificativa || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
+                      Observações
+                    </div>
+                    <div className="font-medium text-gray-900 dark:text-white">
+                      {viewReq.req_observacoes || "—"}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                    Justificativa
-                  </div>
-                  <div className="font-medium text-gray-900 dark:text-white">
-                    {viewReq.req_justificativa || "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">
-                    Observações
-                  </div>
-                  <div className="font-medium text-gray-900 dark:text-white">
-                    {viewReq.req_observacoes || "—"}
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
           </div>
         ) : null}
       </Modal>

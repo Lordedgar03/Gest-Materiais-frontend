@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+      "postinstall": "tailwindcss -v >/dev/null 2>&1 || echo 'Instala Tailwind: npm i -D tailwindcss postcss autoprefixer'"
+ 
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -32,7 +34,6 @@
     "react-toastify": "^11.0.5",
     "recharts": "^2.15.2",
     "sonner": "^2.0.7",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "yup": "^1.7.0",
     "zod": "^4.1.3"
   },
