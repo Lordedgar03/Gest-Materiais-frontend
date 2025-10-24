@@ -1,645 +1,810 @@
 /* eslint-disable no-unused-vars */
+// src/pages/Relatorios.jsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { 
-  FileDown, 
-  Loader2, 
-  AlertCircle, 
-  BarChart3, 
-  TrendingUp, 
-  Package, 
-  DollarSign,
-  Calendar,
+import {
+  Factory,
+  Boxes,
   Filter,
+  Calendar,
   Download,
-  Eye,
-  ChevronDown,
-  ChevronUp
+  Printer,
+  Loader2,
+  BarChart3,
+  ListOrdered,
+  Layers,
+  Building2,
+  Tags,
+  Search,
+  RefreshCcw,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
+  FileDown,
 } from "lucide-react";
-import * as XLSX from "xlsx";
 import { useRelatorios } from "../hooks/useRelatorios";
 
-function Th({ children, className = "" }) {
-  return (
-    <th scope="col" className={`px-6 py-4 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider ${className}`}>
-      {children}
-    </th>
+/* ===================== helpers ===================== */
+const nf = new Intl.NumberFormat("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n) => `STN ${nf.format(Number(n || 0))}`;
+
+function exportCSVGrupos({ grupos, criterio }) {
+  const head = ["Grupo", "Itens", "Quantidade", "Valor em Estoque (STN)"];
+  const rows = [head.join(";")];
+  grupos.forEach((g) =>
+    rows.push([g.grupo, g.itens, g.quantidade, nf.format(g.valor_estoque)].join(";"))
   );
+  const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `estoque-agrupado-${criterio}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
-function Td({ children, className = "" }) {
-  return <td className={`px-6 py-4 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap ${className}`}>{children}</td>;
+function exportCSVLista({ rows }) {
+  const head = [
+    "Material",
+    "Local",
+    "Tipo",
+    "Categoria",
+    "Quantidade",
+    "Preço",
+    "Valor em Estoque (STN)",
+  ];
+  const lines = [head.join(";")];
+  rows.forEach((m) =>
+    lines.push(
+      [
+        m.mat_nome ?? m.nome ?? "-",
+        m.mat_localizacao ?? "-",
+        m.tipo_nome ?? "-",
+        m.categoria_nome ?? "-",
+        Number(m.mat_quantidade_estoque || 0),
+        nf.format(Number(m.mat_preco || 0)),
+        nf.format(Number(m.valor_estoque || 0)),
+      ].join(";")
+    )
+  );
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `materiais-detalhe.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
-function KPI({ label, value, icon: Icon, trend, trendValue, color = "blue" }) {
-  const colorClasses = {
-    blue: "from-blue-500 to-indigo-600",
-    green: "from-green-500 to-emerald-600", 
-    purple: "from-purple-500 to-violet-600",
-    orange: "from-orange-500 to-amber-600"
+const exportPDF = () => {
+  // Usa o diálogo nativo do browser (Imprimir → Guardar como PDF)
+  window.print();
+};
+
+/* ===================== micro UI ===================== */
+const Card = ({ children, className = "" }) => (
+  <div
+    className={`rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm ${className}`}
+  >
+    {children}
+  </div>
+);
+
+const Stat = ({ icon, label, value, tone = "indigo" }) => {
+  const toneMap = {
+    indigo: "from-indigo-500 to-violet-600",
+    emerald: "from-emerald-500 to-teal-600",
+    amber: "from-amber-500 to-orange-600",
+    sky: "from-sky-500 to-blue-600",
+  };
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+      <div className={`absolute inset-x-0 -top-24 h-40 bg-gradient-to-br ${toneMap[tone]} opacity-5 blur-2xl`} />
+      <div className="p-5">
+        <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+          <span className="grid place-items-center h-9 w-9 rounded-xl bg-gray-100 dark:bg-gray-800">
+            {icon}
+          </span>
+          <span className="font-medium">{label}</span>
+        </div>
+        <div className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">{value}</div>
+      </div>
+    </div>
+  );
+};
+
+function PillsMulti({ items = [], value = [], onChange, icon, label, placeholder = "Pesquisar..." }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return items;
+    return items.filter((it) => {
+      const txt = (it?.nome ?? it)?.toString().toLowerCase();
+      return txt.includes(s);
+    });
+  }, [q, items]);
+
+  const toggle = (val) => {
+    const v = String(val);
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   };
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/20 dark:border-gray-700/50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-      <div className={`absolute inset-0 bg-gradient-to-br ${colorClasses[color]} opacity-5 group-hover:opacity-10 transition-opacity duration-300`}></div>
-      <div className="relative p-6">
-        <div className="flex items-center justify-between mb-3">
-          <div className={`p-3 rounded-xl bg-gradient-to-br ${colorClasses[color]} shadow-lg`}>
-            <Icon className="h-6 w-6 text-white" />
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="w-full h-11 px-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-left flex items-center justify-between"
+      >
+        <span className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          {icon} {label}
+        </span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{value.length} selecionado(s)</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-2 w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl p-3">
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={placeholder}
+              className="w-full h-10 pl-9 pr-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+            />
           </div>
-          {trend && (
-            <div className={`flex items-center text-xs font-medium ${trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>
-              <TrendingUp className={`h-3 w-3 mr-1 ${trend === 'down' ? 'rotate-180' : ''}`} />
-              {trendValue}
-            </div>
-          )}
+          <div className="max-h-64 overflow-auto space-y-2">
+            {filtered.length ? (
+              filtered.map((it) => {
+                const id = String(it?.id ?? it);
+                const label = String(it?.nome ?? it);
+                const checked = value.includes(id);
+                return (
+                  <label
+                    key={id}
+                    className={`flex items-center gap-3 p-2 rounded-lg border text-sm cursor-pointer ${
+                      checked
+                        ? "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
+                        : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(id)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-700 rounded"
+                    />
+                    <span className={checked ? "text-blue-900 dark:text-blue-200" : "text-gray-700 dark:text-gray-300"}>
+                      {label}
+                    </span>
+                  </label>
+                );
+              })
+            ) : (
+              <div className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">Nada encontrado…</div>
+            )}
+          </div>
+          <div className="flex justify-between items-center mt-3">
+            <span className="text-xs text-gray-500 dark:text-gray-400">{value.length} selecionado(s)</span>
+            <button
+              onClick={() => setOpen(false)}
+              className="h-9 px-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm"
+            >
+              Fechar
+            </button>
+          </div>
         </div>
-        <p className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
-      </div>
+      )}
     </div>
   );
 }
 
-function SectionCard({ title, children, className = "" }) {
-  return (
-    <section className={`rounded-2xl bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-white/20 dark:border-gray-700/50 shadow-xl ${className}`}>
-      <div className="p-6 border-b border-gray-200/50 dark:border-gray-700/50">
-        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-3">
-          <div className="h-2 w-2 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600"></div>
-          {title}
-        </h2>
-      </div>
-      <div className="p-6">{children}</div>
-    </section>
-  );
-}
-
-function FilterGrid({ children }) {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
-      {children}
-    </div>
-  );
-}
-
-function FilterSelect({ label, value, onChange, options, icon: Icon }) {
+/* CSS chart (barras) */
+function Bars({ data = [], max = 1 }) {
+  if (!data.length) return null;
+  const m = max || Math.max(...data.map((d) => d.value), 1);
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-        {Icon && <Icon className="h-4 w-4" />}
-        {label}
-      </label>
-      <select
-        value={value}
-        onChange={onChange}
-        className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200 hover:shadow-md"
-      >
-        {options.map((opt, idx) => (
-          <option key={idx} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      {data.map((d) => (
+        <div key={d.label} className="grid grid-cols-[140px_1fr_auto] gap-3 items-center">
+          <div className="truncate text-sm text-gray-700 dark:text-gray-300">{d.label}</div>
+          <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+            <div
+              className="h-2 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600"
+              style={{ width: `${(d.value / m) * 100}%` }}
+              title={String(d.value)}
+            />
+          </div>
+          <div className="text-xs tabular-nums text-gray-600 dark:text-gray-400">{d.right}</div>
+        </div>
+      ))}
     </div>
   );
 }
 
-function ActionButton({ onClick, disabled, loading, children, variant = "primary" }) {
-  const variants = {
-    primary: "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl",
-    secondary: "bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/90"
-  };
-
+/* Paginação reutilizável */
+function Pager({ page, totalPages, onPrev, onNext, className = "" }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={`inline-flex items-center gap-3 px-6 py-3 rounded-xl font-semibold transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none ${variants[variant]}`}
-    >
-      {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
-      {children}
-    </button>
+    <div className={`flex items-center justify-between ${className}`}>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Página <b>{page}</b> de <b>{totalPages}</b>
+      </p>
+      <div className="inline-flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-700">
+        <button
+          onClick={onPrev}
+          disabled={page === 1}
+          className="h-9 w-9 grid place-items-center hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <button
+          onClick={onNext}
+          disabled={page === totalPages}
+          className="h-9 w-9 grid place-items-center hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
-const MESES_NOMES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+/* ===================== página ===================== */
+export default function Relatorios() {
+  const { loading, error, filtros, estoque, fetchEstoqueAgrupado, listaMateriais, vendasMensal } =
+    useRelatorios();
 
-export default function Reports() {
-  const {
-    loading, error,
-    filtros,
-    estoque, fetchEstoqueAgrupado,
-    listaMateriais,
-    vendasMensal
-  } = useRelatorios();
+  const [criterio, setCriterio] = useState("local"); // local | tipo | categoria
+  const [locaisSel, setLocaisSel] = useState([]);
+  const [tiposSel, setTiposSel] = useState([]);
+  const [catsSel, setCatsSel] = useState([]);
+  const [search, setSearch] = useState("");
+  const [aba, setAba] = useState("agrupado"); // agrupado | lista | vendas
 
-  // filtros gerais do agregado
-  const [agrupadoPor, setAgrupadoPor] = useState("local");
-  const [localSel, setLocalSel] = useState("");
-  const [tipoId, setTipoId] = useState("");
-  const [categoriaId, setCategoriaId] = useState("");
+  // paginação (agrupado)
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
-  // agrupamento do DETALHE
-  const [detGroupBy, setDetGroupBy] = useState("todos");
-  const [expandedGroups, setExpandedGroups] = useState(new Set());
+  // lista detalhada + paginação
+  const [lista, setLista] = useState([]);
+  const [loadLista, setLoadLista] = useState(false);
+  const [pageL, setPageL] = useState(1);
+  const [pageSizeL, setPageSizeL] = useState(10);
 
   // vendas
   const [ano, setAno] = useState(new Date().getFullYear());
-  const [ven, setVen] = useState({ ok: true, ano, porMes: Array.from({length:12},(_,i)=>({mes:i+1, valor:0})), total: 0 });
-  const [venLoading, setVenLoading] = useState(false);
-  const [venErr, setVenErr] = useState("");
+  const [mensal, setMensal] = useState(null);
+  const [loadMensal, setLoadMensal] = useState(false);
 
-  // materiais detalhe
-  const [det, setDet] = useState({ ok: true, rows: [], total: { quantidade:0, valor_estoque:0 } });
-  const [detLoading, setDetLoading] = useState(false);
-  const [detErr, setDetErr] = useState("");
+  const gruposFiltrados = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    let rows = estoque.grupos || [];
+    if (s) rows = rows.filter((g) => g.grupo?.toLowerCase().includes(s));
+    return rows;
+  }, [estoque.grupos, search]);
 
-  // estados de exportação
-  const [expAgg, setExpAgg] = useState(false);
-  const [expDet, setExpDet] = useState(false);
-  const [expVen, setExpVen] = useState(false);
+  const totalPages = Math.max(1, Math.ceil(gruposFiltrados.length / pageSize));
+  const pageRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return gruposFiltrados.slice(start, start + pageSize);
+  }, [gruposFiltrados, page, pageSize]);
 
-  // carregar agregado
-  useEffect(() => {
-    const params = {
-      groupBy: agrupadoPor,
-      ...(localSel ? { local: localSel } : {}),
-      ...(tipoId ? { tipo_id: Number(tipoId) } : {}),
-      ...(categoriaId ? { categoria_id: Number(categoriaId) } : {}),
-    };
-    fetchEstoqueAgrupado(params);
-  }, [agrupadoPor, localSel, tipoId, categoriaId, fetchEstoqueAgrupado]);
+  const barsData = useMemo(
+    () =>
+      (estoque.grupos || []).map((g) => ({
+        label: g.grupo,
+        value: Number(g.valor_estoque || 0),
+        right: money(g.valor_estoque || 0),
+      })),
+    [estoque.grupos]
+  );
 
-  // carregar detalhe
-  useEffect(() => {
-    (async () => {
-      try {
-        setDetLoading(true); setDetErr("");
-        const res = await listaMateriais({
-          ...(localSel ? { local: localSel } : {}),
-          ...(tipoId ? { tipo_id: Number(tipoId) } : {}),
-          ...(categoriaId ? { categoria_id: Number(categoriaId) } : {}),
-        });
-        setDet(res);
-      } catch (e) {
-        setDetErr(e?.response?.data?.message || e?.message || "Falha ao carregar materiais.");
-        setDet({ ok:false, rows:[], total:{quantidade:0, valor_estoque:0} });
-      } finally {
-        setDetLoading(false);
-      }
-    })();
-  }, [localSel, tipoId, categoriaId, listaMateriais]);
+  const maxBar = useMemo(
+    () => Math.max(...barsData.map((b) => b.value), 1),
+    [barsData]
+  );
 
-  // carregar vendas
-  useEffect(() => {
-    (async () => {
-      try {
-        setVenLoading(true); setVenErr("");
-        const r = await vendasMensal(ano);
-        const meses = Array.isArray(r?.meses) ? r.meses : [];
-        const porMes = Array.from({length:12},(_,i)=>{
-          const mm = meses.find(x => Number(x.mes)===i+1);
-          return { mes: i+1, valor: Number(mm?.total || 0) };
-        });
-        setVen({ ok: r?.ok !== false, ano: r?.ano ?? ano, porMes, total: Number(r?.totalAno || 0) });
-      } catch (e) {
-        setVenErr(e?.response?.data?.message || e?.message || "Falha ao carregar vendas.");
-        setVen(prev=>({ ...prev, ok:false, porMes: prev.porMes.map(x=>({...x,valor:0})), total:0 }));
-      } finally {
-        setVenLoading(false);
-      }
-    })();
-  }, [ano, vendasMensal]);
-
-  // KPIs do agregado
-  const kpisMat = useMemo(() => {
-    const t = estoque?.total || { itens:0, quantidade:0, valor_estoque:0 };
-    return {
-      itens: Number(t.itens||0),
-      quantidade: Number(t.quantidade||0),
-      valor: Number(t.valor_estoque||0),
-    };
-  }, [estoque]);
-
-  // agrupamento do DETALHE no front
-  const detalheAgrupado = useMemo(() => {
-    const rows = det?.rows || [];
-    if (detGroupBy === "todos") {
-      return [{ chave: "Todos", itens: rows }];
-    }
-    const keyer = {
-      local: (r) => r.mat_localizacao || "Sem localização",
-      tipo:  (r) => r.tipo_nome || "Sem tipo",
-      categoria: (r) => r.categoria_nome || "Sem categoria",
-    }[detGroupBy];
-
-    const map = new Map();
-    for (const r of rows) {
-      const k = keyer(r) || "Não definido";
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(r);
-    }
-    return Array.from(map, ([chave, itens]) => ({ chave, itens }))
-      .sort((a,b)=>String(a.chave).localeCompare(String(b.chave),"pt"));
-  }, [det?.rows, detGroupBy]);
-
-  // toggle grupo expandido
-  const toggleGroup = (chave) => {
-    setExpandedGroups(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(chave)) {
-        newSet.delete(chave);
-      } else {
-        newSet.add(chave);
-      }
-      return newSet;
+  const gerarAgrupado = async () => {
+    setPage(1);
+    await fetchEstoqueAgrupado({
+      groupBy: criterio,
+      locais: locaisSel,
+      tipos: tiposSel,
+      categorias: catsSel,
     });
   };
 
-  // exportações
-  const exportAgg = async () => {
+  const carregarLista = async () => {
+    setLoadLista(true);
     try {
-      setExpAgg(true);
-      const linhas = (estoque?.grupos || []).map(g => ({
-        "Grupo": g.grupo ?? "Não definido",
-        "Itens": Number(g.itens||0),
-        "Quantidade": Number(g.quantidade||0),
-        "Valor em estoque (STN)": Number(g.valor_estoque||0).toFixed(2),
-      }));
-      const tot = [{
-        "Total Itens": Number(estoque?.total?.itens||0),
-        "Total Qtd": Number(estoque?.total?.quantidade||0),
-        "Total (STN)": Number(estoque?.total?.valor_estoque||0).toFixed(2),
-      }];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Estoque (grupos)");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tot), "Totais");
-      XLSX.writeFile(wb, `estoque_agrupado_${estoque?.criterio||agrupadoPor}.xlsx`, { compression:true });
+      const { rows } = await listaMateriais({
+        locais: locaisSel,
+        tipos: tiposSel,
+        categorias: catsSel,
+      });
+      setLista(rows);
+      setPageL(1);
+    } catch {
+      setLista([]);
     } finally {
-      setExpAgg(false);
+      setLoadLista(false);
     }
   };
 
-  const exportDet = async () => {
+  const carregarMensal = async () => {
+    setLoadMensal(true);
     try {
-      setExpDet(true);
-      const linhas = (det?.rows || []).map(r => ({
-        "Grupo": detGroupBy==="todos"
-          ? "Todos"
-          : detGroupBy==="local" ? (r.mat_localizacao||"Sem localização")
-          : detGroupBy==="tipo" ? (r.tipo_nome||"Sem tipo")
-          : (r.categoria_nome||"Sem categoria"),
-        "Material": r.mat_nome ?? "Sem nome",
-        "Tipo": r.tipo_nome ?? "Sem tipo",
-        "Categoria": r.categoria_nome ?? "Sem categoria",
-        "Local": r.mat_localizacao ?? "Sem localização",
-        "Quantidade": Number(r.mat_quantidade_estoque||0),
-        "Preço (STN)": Number(r.mat_preco||0).toFixed(2),
-        "Valor em estoque (STN)": Number(r.valor_estoque || (Number(r.mat_quantidade_estoque||0)*Number(r.mat_preco||0))).toFixed(2),
-      }));
-      const tot = [{
-        "Total Qtd": Number(det?.total?.quantidade||0),
-        "Total (STN)": Number(det?.total?.valor_estoque||0).toFixed(2),
-      }];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Materiais (detalhe)");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tot), "Totais");
-      XLSX.writeFile(wb, `materiais_detalhe_${detGroupBy}.xlsx`, { compression:true });
+      const r = await vendasMensal(Number(ano));
+      setMensal(r);
     } finally {
-      setExpDet(false);
+      setLoadMensal(false);
     }
   };
 
-  const exportVen = async () => {
-    try {
-      setExpVen(true);
-      const linhas = (ven?.porMes || []).map(m => ({
-        "Mês": `${String(m.mes).padStart(2,"0")} - ${MESES_NOMES[(m.mes-1)%12]}`,
-        "Total (STN)": Number(m.valor||0).toFixed(2),
-      }));
-      const tot = [{ "Ano": ven?.ano ?? ano, "Arrecadado (STN)": Number(ven?.total||0).toFixed(2) }];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Por mês");
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tot), "Total do ano");
-      XLSX.writeFile(wb, `vendas_${ven?.ano||ano}.xlsx`, { compression:true });
-    } finally {
-      setExpVen(false);
-    }
-  };
+  // paginação lista
+  const totalPagesL = Math.max(1, Math.ceil((lista?.length || 0) / pageSizeL));
+  const pageRowsL = useMemo(() => {
+    const start = (pageL - 1) * pageSizeL;
+    return (lista || []).slice(start, start + pageSizeL);
+  }, [lista, pageL, pageSizeL]);
+
+  useEffect(() => {
+    gerarAgrupado();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-blue-950/20 dark:to-indigo-950/20 space-y-8 p-6">
-      {/* Header */}
-      <header className="rounded-2xl bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/20 dark:border-gray-700/50 shadow-xl p-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-gray-100 dark:to-gray-400 bg-clip-text text-transparent">
-              Relatórios Avançados
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">Análise completa de materiais e vendas</p>
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4 md:p-6 print:p-0">
+      {/* Cabeçalho de impressão */}
+      <div className="hidden print:block p-6 border-b">
+        <h1 className="text-2xl font-semibold">Relatórios & Estoque</h1>
+        <p className="text-sm text-gray-600">
+          Gerado em {new Date().toLocaleString("pt-PT")}
+        </p>
+      </div>
+
+      {/* header */}
+      <Card className="p-5 md:p-6 mb-6 print:hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white grid place-items-center shadow-lg">
+              <BarChart3 className="h-7 w-7" />
+            </div>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
+                Relatórios & Estoque
+              </h1>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">
+                Acompanhe o valor em estoque, materiais e vendas mensais.
+              </p>
+            </div>
           </div>
-          <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
-            <BarChart3 className="h-8 w-8 text-white" />
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={exportPDF}
+              className="h-10 px-4 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2 text-gray-800 dark:text-gray-200"
+              title="Exportar PDF"
+            >
+              <Printer className="h-4 w-4" />
+              Exportar PDF
+            </button>
+
+            {aba === "agrupado" && (
+              <button
+                onClick={() => exportCSVGrupos({ grupos: gruposFiltrados, criterio })}
+                className="h-10 px-4 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2 text-gray-800 dark:text-gray-200"
+              >
+                <FileDown className="h-4 w-4" />
+                Exportar CSV
+              </button>
+            )}
+            {aba === "lista" && (
+              <button
+                onClick={() => exportCSVLista({ rows: lista })}
+                className="h-10 px-4 rounded-xl border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-2 text-gray-800 dark:text-gray-200"
+              >
+                <FileDown className="h-4 w-4" />
+                Exportar CSV
+              </button>
+            )}
           </div>
         </div>
-      </header>
+      </Card>
 
-      {/* Estoque Section */}
-      <SectionCard title="Análise de Estoque">
-        <FilterGrid>
-          <FilterSelect
-            label="Agrupar por"
-            value={agrupadoPor}
-            onChange={(e) => setAgrupadoPor(e.target.value)}
-            icon={Filter}
-            options={[
-              { value: "local", label: "Localização" },
-              { value: "tipo", label: "Tipo" },
-              { value: "categoria", label: "Categoria" }
-            ]}
-          />
-          
-          <FilterSelect
-            label="Local"
-            value={localSel}
-            onChange={(e) => setLocalSel(e.target.value)}
-            options={[
-              { value: "", label: "Todos os locais" },
-              ...(filtros?.locais || []).map(l => ({ value: l, label: l }))
-            ]}
-          />
+      {/* filtros */}
+      <Card className="p-5 md:p-6 mb-6 print:hidden">
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Filter className="h-5 w-5 text-blue-600" />
+            Filtros
+          </h2>
 
-          <FilterSelect
-            label="Tipo"
-            value={tipoId}
-            onChange={(e) => setTipoId(e.target.value)}
-            options={[
-              { value: "", label: "Todos os tipos" },
-              ...(filtros?.tipos || []).map(t => ({ value: t.id, label: t.nome }))
-            ]}
-          />
+        <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600 dark:text-gray-400">Agrupar por</label>
+            <select
+              value={criterio}
+              onChange={(e) => setCriterio(e.target.value)}
+              className="h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+            >
+              <option value="local">Local</option>
+              <option value="tipo">Tipo</option>
+              <option value="categoria">Categoria</option>
+            </select>
 
-          <FilterSelect
-            label="Categoria"
-            value={categoriaId}
-            onChange={(e) => setCategoriaId(e.target.value)}
-            options={[
-              { value: "", label: "Todas as categorias" },
-              ...(filtros?.categorias || []).map(c => ({ value: c.id, label: c.nome }))
-            ]}
-          />
+            <label className="text-sm text-gray-600 dark:text-gray-400 ml-2">Por página</label>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+            >
+              {[10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
 
-          <div className="lg:col-span-2 flex items-end">
-            <ActionButton onClick={exportAgg} loading={expAgg || loading}>
-              <Download className="h-5 w-5" />
-              Exportar Estoque
-            </ActionButton>
+            <button
+              onClick={gerarAgrupado}
+              disabled={loading}
+              className="h-10 px-4 rounded-xl bg-blue-600 text-white hover:bg-blue-700 inline-flex items-center gap-2 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+              Atualizar
+            </button>
           </div>
-        </FilterGrid>
-
-        {/* KPIs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-8">
-          <KPI 
-            label="Total de Itens" 
-            value={kpisMat.itens.toLocaleString()} 
-            icon={Package}
-            color="blue"
-          />
-          <KPI 
-            label="Quantidade Total" 
-            value={kpisMat.quantidade.toLocaleString()} 
-            icon={BarChart3}
-            color="green"
-          />
-          <KPI 
-            label="Valor em Estoque" 
-            value={`STN${kpisMat.valor.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
-            icon={DollarSign}
-            color="purple"
-          />
-        </div>
-      </SectionCard>
-
-      {/* Materiais Detalhe */}
-      <SectionCard title="Materiais Detalhados">
-        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end justify-between mb-6">
-          <FilterSelect
-            label="Agrupar detalhes por"
-            value={detGroupBy}
-            onChange={(e) => setDetGroupBy(e.target.value)}
-            icon={Eye}
-            options={[
-              { value: "todos", label: "Sem agrupamento" },
-              { value: "local", label: "Por localização" },
-              { value: "tipo", label: "Por tipo" },
-              { value: "categoria", label: "Por categoria" }
-            ]}
-          />
-          
-          <ActionButton onClick={exportDet} loading={expDet || detLoading}>
-            <Download className="h-5 w-5" />
-            Exportar Materiais
-          </ActionButton>
         </div>
 
-        <div className="rounded-2xl bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/20 dark:border-gray-700/50 shadow-lg overflow-hidden">
-          {detLoading ? (
-            <div className="p-12 flex flex-col items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-4" />
-              <p className="text-gray-600 dark:text-gray-400">Carregando materiais...</p>
-            </div>
-          ) : detErr ? (
-            <div className="p-12 text-center">
-              <AlertCircle className="mx-auto mb-4 h-12 w-12 text-red-500" />
-              <p className="text-red-600 dark:text-red-400 font-medium">{String(detErr)}</p>
-            </div>
-          ) : (det?.rows || []).length === 0 ? (
-            <div className="p-12 text-center">
-              <Package className="mx-auto mb-4 h-12 w-12 text-gray-400" />
-              <p className="text-gray-600 dark:text-gray-400">Nenhum material encontrado para os filtros selecionados.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              {detalheAgrupado.map(({ chave, itens }) => {
-                const isExpanded = expandedGroups.has(chave);
-                const tot = itens.reduce((s,x)=>({
-                  qtd: s.qtd + Number(x.mat_quantidade_estoque||0),
-                  val: s.val + Number(x.valor_estoque||0),
-                }), { qtd:0, val:0 });
-
-                return (
-                  <div key={chave} className="border-b border-gray-200/50 dark:border-gray-700/50 last:border-b-0">
-                    {detGroupBy !== "todos" && (
-                      <button
-                        onClick={() => toggleGroup(chave)}
-                        className="w-full px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 hover:from-gray-100 hover:to-gray-200 dark:hover:from-gray-700 dark:hover:to-gray-600 transition-all duration-200 flex items-center justify-between font-semibold text-left"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="h-3 w-3 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600"></div>
-                          <span className="text-gray-900 dark:text-gray-100">{chave}</span>
-                          <span className="text-sm text-gray-600 dark:text-gray-400">({itens.length} item{itens.length !== 1 ? 's' : ''})</span>
-                        </div>
-                        {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                      </button>
-                    )}
-                    
-                    {(detGroupBy === "todos" || isExpanded) && (
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full">
-                          <thead className="bg-gray-50/80 dark:bg-gray-800/80">
-                            <tr>
-                              <Th>Material</Th>
-                              <Th>Tipo</Th>
-                              <Th>Categoria</Th>
-                              <Th>Localização</Th>
-                              <Th className="text-right">Quantidade</Th>
-                              <Th className="text-right">Preço (STN)</Th>
-                              <Th className="text-right">Valor Total (STN)</Th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-200/50 dark:divide-gray-700/50">
-                            {itens.map(r => (
-                              <tr key={r.mat_id} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition-colors duration-150">
-                                <Td className="font-medium">{r.mat_nome ?? "Sem nome"}</Td>
-                                <Td>{r.tipo_nome ?? "Sem tipo"}</Td>
-                                <Td>{r.categoria_nome ?? "Sem categoria"}</Td>
-                                <Td>{r.mat_localizacao ?? "Sem localização"}</Td>
-                                <Td className="text-right font-mono">{Number(r.mat_quantidade_estoque||0).toLocaleString()}</Td>
-                                <Td className="text-right font-mono">STN{Number(r.mat_preco||0).toFixed(2)}</Td>
-                                <Td className="text-right font-mono font-semibold">STN{Number(r.valor_estoque||0).toFixed(2)}</Td>
-                              </tr>
-                            ))}
-                            <tr className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 font-bold">
-                              <Td colSpan={4} className="font-semibold">Subtotal do grupo</Td>
-                              <Td className="text-right font-mono">{tot.qtd.toLocaleString()}</Td>
-                              <Td className="text-right">—</Td>
-                              <Td className="text-right font-mono">STN{tot.val.toFixed(2)}</Td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              
-              <div className="px-6 py-4 bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 font-bold text-lg">
-                <div className="flex justify-between items-center">
-                  <span>Total Geral</span>
-                  <div className="flex gap-8">
-                    <span>Quantidade: {Number(det?.total?.quantidade||0).toLocaleString()}</span>
-                    <span>Valor: STN{Number(det?.total?.valor_estoque||0).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+        <div className="grid gap-4 md:grid-cols-3">
+          <PillsMulti
+            items={filtros.locais}
+            value={locaisSel}
+            onChange={setLocaisSel}
+            icon={<Building2 className="h-4 w-4 text-blue-600" />}
+            label="Locais"
+            placeholder="Procurar local..."
+          />
+          <PillsMulti
+            items={filtros.tipos}
+            value={tiposSel}
+            onChange={setTiposSel}
+            icon={<Layers className="h-4 w-4 text-emerald-600" />}
+            label="Tipos"
+            placeholder="Procurar tipo..."
+          />
+          <PillsMulti
+            items={filtros.categorias}
+            value={catsSel}
+            onChange={setCatsSel}
+            icon={<Tags className="h-4 w-4 text-amber-600" />}
+            label="Categorias"
+            placeholder="Procurar categoria..."
+          />
         </div>
-      </SectionCard>
+      </Card>
 
-      {/* Vendas Section */}
-      <SectionCard title="Análise de Vendas">
-        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end justify-between mb-6">
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Ano de Análise
-            </label>
-            <input
-              type="number"
-              value={ano}
-              onChange={(e) => setAno(Number(e.target.value || new Date().getFullYear()))}
-              className="w-48 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200"
-              min="2000" 
-              max="2100"
+      {/* tabs */}
+      <div className="mb-4 print:hidden">
+        <div className="inline-flex p-1 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+          {[
+            { k: "agrupado", label: "Estoque Agrupado", icon: <Boxes className="h-4 w-4" /> },
+            { k: "lista", label: "Lista Detalhada", icon: <ListOrdered className="h-4 w-4" /> },
+            { k: "vendas", label: "Vendas por Mês", icon: <Calendar className="h-4 w-4" /> },
+          ].map((t) => {
+            const active = aba === t.k;
+            return (
+              <button
+                key={t.k}
+                onClick={() => setAba(t.k)}
+                className={`h-10 px-4 rounded-xl text-sm font-medium inline-flex items-center gap-2 ${
+                  active
+                    ? "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                }`}
+              >
+                {t.icon}
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* conteúdo */}
+      {aba === "agrupado" && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <Stat
+              icon={<Factory className="h-5 w-5 text-indigo-600" />}
+              label="Total de Itens"
+              value={estoque.total?.itens ?? 0}
+              tone="indigo"
+            />
+            <Stat
+              icon={<Layers className="h-5 w-5 text-emerald-600" />}
+              label="Quantidade Total"
+              value={estoque.total?.quantidade ?? 0}
+              tone="emerald"
+            />
+            <Stat
+              icon={<BarChart3 className="h-5 w-5 text-amber-600" />}
+              label="Valor em Estoque"
+              value={money(estoque.total?.valor_estoque || 0)}
+              tone="amber"
             />
           </div>
-          
-          <ActionButton onClick={exportVen} loading={expVen || venLoading}>
-            <Download className="h-5 w-5" />
-            Exportar Vendas
-          </ActionButton>
-        </div>
 
-        {/* KPIs de Vendas */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <KPI 
-            label="Ano Analisado" 
-            value={ven?.ano ?? ano} 
-            icon={Calendar}
-            color="blue"
-          />
-          <KPI 
-            label="Total Arrecadado" 
-            value={`STN${Number(ven?.total||0).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
-            icon={DollarSign}
-            color="green"
-          />
-          <KPI 
-            label="Média Mensal" 
-            value={`STN${(Number(ven?.total||0)/12).toLocaleString('pt-PT', { minimumFractionDigits: 2 })}`} 
-            icon={TrendingUp}
-            color="purple"
-          />
-          <KPI 
-            label="Meses com Vendas" 
-            value={`${(ven?.porMes||[]).filter(m=>(m?.valor||0)>0).length}/12`} 
-            icon={BarChart3}
-            color="orange"
-          />
-        </div>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* gráfico */}
+            <Card className="p-5 md:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Distribuição de Valor</h3>
+                <div className="relative print:hidden">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Pesquisar grupo..."
+                    className="h-10 pl-9 pr-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                  />
+                </div>
+              </div>
+              {loading ? (
+                <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+                  <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
+                  A carregar…
+                </div>
+              ) : barsData.length ? (
+                <Bars data={barsData} max={maxBar} />
+              ) : (
+                <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+                  <AlertCircle className="h-5 w-5 inline mr-2" />
+                  Sem dados para este filtro
+                </div>
+              )}
+            </Card>
 
-        {/* Tabela de Vendas */}
-        <div className="rounded-2xl bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/20 dark:border-gray-700/50 shadow-lg overflow-hidden">
-          {venLoading ? (
-            <div className="p-12 flex flex-col items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-4" />
-              <p className="text-gray-600 dark:text-gray-400">Carregando dados de vendas...</p>
-            </div>
-          ) : venErr ? (
-            <div className="p-12 text-center">
-              <AlertCircle className="mx-auto mb-4 h-12 w-12 text-red-500" />
-              <p className="text-red-600 dark:text-red-400 font-medium">{String(venErr)}</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700">
-                  <tr>
-                    <Th>Mês</Th>
-                    <Th className="text-right">Vendas (STN)</Th>
-                    <Th className="text-right">% do Total</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200/50 dark:divide-gray-700/50">
-                  {(ven?.porMes||[]).map((m,i)=>{
-                    const percentage = ven?.total > 0 ? (Number(m.valor||0) / Number(ven.total) * 100) : 0;
-                    return (
-                      <tr key={i} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition-colors duration-150">
-                        <Td className="font-medium">
-                          <div className="flex items-center gap-3">
-                            <div className="h-2 w-2 rounded-full bg-gradient-to-r from-blue-500 to-indigo-600"></div>
-                            {`${String(m.mes).padStart(2,"0")} - ${MESES_NOMES[(m.mes-1)%12]}`}
-                          </div>
-                        </Td>
-                        <Td className="text-right font-mono">STN{Number(m.valor||0).toFixed(2)}</Td>
-                        <Td className="text-right font-mono text-gray-600 dark:text-gray-400">{percentage.toFixed(1)}%</Td>
+            {/* tabela agrupada */}
+            <Card className="overflow-hidden">
+              <div className="px-5 md:px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Tabela — Agrupado por {estoque.criterio}
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {gruposFiltrados.length} grupo(s)
+                </p>
+              </div>
+              <div className="overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                    <tr>
+                      <th className="px-6 py-3 text-left font-semibold">Grupo</th>
+                      <th className="px-6 py-3 text-left font-semibold">Itens</th>
+                      <th className="px-6 py-3 text-left font-semibold">Quantidade</th>
+                      <th className="px-6 py-3 text-right font-semibold">Valor em Estoque</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                    {pageRows.map((g) => (
+                      <tr key={g.grupo} className="hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                        <td className="px-6 py-3">{g.grupo}</td>
+                        <td className="px-6 py-3">{g.itens}</td>
+                        <td className="px-6 py-3">{g.quantidade}</td>
+                        <td className="px-6 py-3 text-right font-mono">{money(g.valor_estoque)}</td>
                       </tr>
-                    );
-                  })}
-                  <tr className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 font-bold text-lg">
-                    <Td className="font-bold">Total do Ano</Td>
-                    <Td className="text-right font-mono">STN{Number(ven?.total||0).toFixed(2)}</Td>
-                    <Td className="text-right font-mono">100%</Td>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-800">
+                    <tr className="font-semibold">
+                      <td className="px-6 py-3">Totais</td>
+                      <td className="px-6 py-3">{estoque.total?.itens ?? 0}</td>
+                      <td className="px-6 py-3">{estoque.total?.quantidade ?? 0}</td>
+                      <td className="px-6 py-3 text-right font-mono">
+                        {money(estoque.total?.valor_estoque || 0)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {totalPages > 1 && (
+                <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800">
+                  <Pager
+                    page={page}
+                    totalPages={totalPages}
+                    onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                    onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  />
+                </div>
+              )}
+            </Card>
+          </div>
+        </>
+      )}
+
+      {aba === "lista" && (
+        <Card className="overflow-hidden">
+          <div className="px-5 md:px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Materiais</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Lista detalhada de materiais com valor em estoque.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 print:hidden">
+              <label className="text-sm text-gray-600 dark:text-gray-400">Por página</label>
+              <select
+                value={pageSizeL}
+                onChange={(e) => setPageSizeL(Number(e.target.value))}
+                className="h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+              >
+                {[10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+
+              <button
+                onClick={carregarLista}
+                className="h-10 px-4 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 inline-flex items-center gap-2"
+              >
+                {loadLista ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                Carregar
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-auto">
+            <table className="min-w-[900px] w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                <tr>
+                  <th className="px-6 py-3 text-left font-semibold">Material</th>
+                  <th className="px-6 py-3 text-left font-semibold">Local</th>
+                  <th className="px-6 py-3 text-left font-semibold">Tipo</th>
+                  <th className="px-6 py-3 text-left font-semibold">Categoria</th>
+                  <th className="px-6 py-3 text-left font-semibold">Qtd</th>
+                  <th className="px-6 py-3 text-left font-semibold">Preço</th>
+                  <th className="px-6 py-3 text-right font-semibold">Valor Estoque</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                {!loadLista && !lista.length ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      Nenhum material carregado. Clique em <b>Carregar</b>.
+                    </td>
                   </tr>
-                </tbody>
-              </table>
+                ) : loadLista ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                      <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
+                      A carregar…
+                    </td>
+                  </tr>
+                ) : (
+                  pageRowsL.map((m, i) => (
+                    <tr key={(m.mat_id ?? m.id ?? i) + "-" + i} className="hover:bg-gray-50 dark:hover:bg-gray-800/60">
+                      <td className="px-6 py-3">{m.mat_nome ?? m.nome ?? "-"}</td>
+                      <td className="px-6 py-3">{m.mat_localizacao ?? "-"}</td>
+                      <td className="px-6 py-3">{m.tipo_nome ?? "-"}</td>
+                      <td className="px-6 py-3">{m.categoria_nome ?? "-"}</td>
+                      <td className="px-6 py-3">{Number(m.mat_quantidade_estoque || 0)}</td>
+                      <td className="px-6 py-3">{money(m.mat_preco)}</td>
+                      <td className="px-6 py-3 text-right font-mono">{money(m.valor_estoque)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {lista.length > 0 && (
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 print:hidden">
+              <Pager
+                page={pageL}
+                totalPages={totalPagesL}
+                onPrev={() => setPageL((p) => Math.max(1, p - 1))}
+                onNext={() => setPageL((p) => Math.min(totalPagesL, p + 1))}
+              />
             </div>
           )}
+        </Card>
+      )}
+
+      {aba === "vendas" && (
+        <Card className="p-5 md:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 print:hidden">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Vendas por Mês</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Resumo financeiro anual</p>
+            </div>
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Ano</label>
+                <input
+                  type="number"
+                  value={ano}
+                  onChange={(e) => setAno(e.target.value)}
+                  className="h-10 w-28 px-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                />
+              </div>
+              <button
+                onClick={carregarMensal}
+                className="h-10 px-4 rounded-xl bg-sky-600 text-white hover:bg-sky-700 inline-flex items-center gap-2"
+              >
+                {loadMensal ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                Gerar
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            {!mensal ? (
+              <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+                Selecione o ano e clique em <b>Gerar</b>.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <Stat
+                    icon={<Calendar className="h-5 w-5 text-sky-600" />}
+                    label={`Ano ${mensal.ano}`}
+                    value={mensal.ano}
+                    tone="sky"
+                  />
+                  <Stat
+                    icon={<BarChart3 className="h-5 w-5 text-emerald-600" />}
+                    label="Total do Ano"
+                    value={money(mensal.totalAno)}
+                    tone="emerald"
+                  />
+                  <Stat
+                    icon={<Boxes className="h-5 w-5 text-amber-600" />}
+                    label="Meses com Movimento"
+                    value={(mensal.meses || []).filter((m) => Number(m.total) > 0).length}
+                    tone="amber"
+                  />
+                </div>
+                <Bars
+                  data={(mensal.meses || []).map((m) => ({
+                    label: new Date(2000, m.mes - 1, 1).toLocaleString("pt-PT", { month: "short" }),
+                    value: Number(m.total || 0),
+                    right: money(m.total || 0),
+                  }))}
+                  max={Math.max(...(mensal.meses || []).map((m) => Number(m.total || 0)), 1)}
+                />
+              </>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* erros globais */}
+      {error && (
+        <div className="mt-6 rounded-2xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 text-amber-800 dark:text-amber-200">
+          {error}
         </div>
-      </SectionCard>
+      )}
+
+      {/* estilo de impressão (PDF) */}
+      <style jsx global>{`
+        @media print {
+          @page { margin: 12mm; }
+          body { background: white !important; }
+          /* esconder botões/inputs/headers de navegação */
+          .print\\:hidden,
+          button,
+          select,
+          input,
+          .rounded-2xl.shadow-sm:has(> .print\\:hidden) { display: none !important; }
+          /* bordas e sombras minimalistas no PDF */
+          .rounded-2xl { border-radius: 0 !important; }
+          .shadow-sm { box-shadow: none !important; }
+          /* mostrar cabeçalho próprio */
+          .print\\:block { display: block !important; }
+        }
+      `}</style>
     </main>
   );
 }

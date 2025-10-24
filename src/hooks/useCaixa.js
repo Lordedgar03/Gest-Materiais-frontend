@@ -1,146 +1,210 @@
+// src/hooks/useCaixa.js
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
 
-/* ==================== Helpers ==================== */
-const fmt = (n) =>
-  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
+/* ================= Helpers ================= */
+export const fmt = (n) =>
+  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "STN" });
 
-const todayLocal = (tz = "Africa/Sao_Tome") =>
-  new Date().toLocaleString("sv-SE", { timeZone: tz }).slice(0, 10);
-
-// JWT + permissão (mesmo padrão do PDV/Vendas)
-function parseJwt(token) {
+function parseJwtUnsafe(token) {
   try {
     const base64 = token.split(".")[1];
     const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(json);
+    return JSON.parse(json || "{}");
   } catch {
     return {};
   }
 }
-function hasManageSales(decoded) {
-  if (!decoded) return false;
 
-  const roles = decoded.roles || [];
-  if (decoded.is_admin === true || roles.includes("admin")) return true;
+function canUseCaixa() {
+  try {
+    const caps = JSON.parse(localStorage.getItem("caps") || "[]");
+    const set = new Set(caps);
+    if (set.has("venda:visualizar") || set.has("venda:gerir") || set.has("caixa:gerir")) return true;
 
-  const rawPerms = []
-    .concat(decoded.permissions || [])
-    .concat(decoded.perms || [])
-    .concat(decoded.scopes || [])
-    .concat(decoded.actions || [])
-    .concat(decoded.allowed || []);
+    const token = localStorage.getItem("token");
+    if (!token) return false;
+    const payload = parseJwtUnsafe(token);
 
-  const normPerms = new Set(
-    rawPerms
-      .map((p) => {
-        if (typeof p === "string") return p.toLowerCase();
-        if (p && typeof p === "object") {
-          const cand = p.code || p.name || p.action_code || p.actionCode || p.permission;
-          return cand ? String(cand).toLowerCase() : "";
-        }
-        return "";
-      })
-      .filter(Boolean),
-  );
-  if (normPerms.has("manage_sales")) return true;
+    const roles = Array.isArray(payload?.roles) ? payload.roles : [];
+    if (payload?.is_admin === true || roles.includes("admin")) return true;
 
-  const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
-  const hasTemplate = templates.some((t) => {
-    const cand =
-      t?.template_code || t?.code || t?.name || t?.permission || t?.action_code || t?.actionCode;
-    return String(cand || "").toLowerCase() === "manage_sales";
-  });
-
-  return hasTemplate;
+    const templates = Array.isArray(payload?.templates) ? payload.templates : [];
+    return templates.some((t) => {
+      const code = String(t?.template_code || t?.code || "").toLowerCase();
+      return code === "manage_sales" || code === "manage_cash";
+    });
+  } catch {
+    return false;
+  }
 }
 
-/* ==================== Hook ==================== */
-export function useCaixa() {
-  /** Gate de permissão */
-  const decodedRef = useRef(null);
-  if (!decodedRef.current && typeof window !== "undefined") {
-    const token = localStorage.getItem("token");
-    decodedRef.current = token ? parseJwt(token) : {};
-  }
-  const allowed = hasManageSales(decodedRef.current || {});
+function todayYYYYMMDD() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
-  // Estado
-  const [cash, setCash] = useState(null);
+/* ================= Hook principal ================= */
+export function useCaixa() {
+  const allowed = useRef(canUseCaixa()).current;
+
+  // Estado base
   const [loading, setLoading] = useState(true);
+  const [cash, setCash] = useState(null);           // objeto do caixa aberto (ou null)
+  const [salesToday, setSalesToday] = useState([]); // vendas de hoje
+  const [resume, setResume] = useState({ qtd: 0, desconto: 0, total: 0 });
+
+  // UI
   const [openOpenModal, setOpenOpenModal] = useState(false);
   const [openCloseModal, setOpenCloseModal] = useState(false);
   const [initialBalance, setInitialBalance] = useState("");
   const [toast, setToast] = useState("");
-  const [salesToday, setSalesToday] = useState([]);
 
-  const isAberto = cash?.cx_status === "Aberto";
+  // Normalização: aceita "aberto" (bool), "cx_status"/"status" = "Aberto"
+  const isAberto = useMemo(() => {
+    if (!cash) return false;
+    if (typeof cash.aberto === "boolean") return cash.aberto;
+    const status = String(cash.cx_status ?? cash.status ?? "").trim().toLowerCase();
+    return status === "aberto";
+  }, [cash]);
 
-  // API
-  const loadHoje = async () => {
-    const r = await api.get("/caixas/aberto"); // pode devolver null
-    setCash(r.data || null);
-  };
+  // Carrega caixa atual (usa /caixas/aberto — compatível com o teu ApiGateway)
+  const loadCaixa = useCallback(async () => {
+    try {
+      const r = await api.get("/caixas/aberto");
+      setCash(r?.data ?? null);
+    } catch (e) {
+      // 404 significa "não há caixa aberto" -> cash = null
+      if (e?.response?.status === 404) setCash(null);
+      else {
+        console.error(e);
+        setToast("Falha ao consultar o estado do caixa.");
+      }
+    }
+  }, []);
 
-  const loadSalesHoje = async () => {
-    const dia = todayLocal();
-    const r = await api.get("/vendas", { params: { from: dia, to: dia } });
-    const data = Array.isArray(r.data) ? r.data : (r.data?.data ?? []);
-    setSalesToday(data);
-  };
+  // Vendas do dia (para resumo e tabela)
+  const loadSalesToday = useCallback(async () => {
+    try {
+      const day = todayYYYYMMDD();
+      const r = await api.get("/vendas", { params: { from: day, to: day } });
+      const list = Array.isArray(r.data) ? r.data : r.data?.data ?? [];
+      setSalesToday(list);
+    } catch (e) {
+      console.error(e);
+      setSalesToday([]);
+    }
+  }, []);
+
+  // KPIs baseados nas vendas
+  useEffect(() => {
+    const paid = salesToday.filter((s) => String(s.ven_status) === "Paga");
+    const qtd = paid.length;
+    const desconto = paid.reduce((a, s) => a + Number(s.ven_desconto || 0), 0);
+    const total = paid.reduce((a, s) => a + Number(s.ven_total || 0), 0);
+    setResume({ qtd, desconto, total });
+  }, [salesToday]);
+
+  // Refetch conjunto
+  const refetchAll = useCallback(async () => {
+    if (!allowed) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      await Promise.all([loadCaixa(), loadSalesToday()]);
+    } finally {
+      setLoading(false);
+    }
+  }, [allowed, loadCaixa, loadSalesToday]);
 
   // Boot
   useEffect(() => {
-    (async () => {
-      if (!allowed) {
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        await Promise.all([loadHoje(), loadSalesHoje()]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [allowed]);
+    refetchAll();
+  }, [refetchAll]);
 
-  // Resumo do dia
-  const resume = useMemo(() => {
-    const pagas = salesToday.filter((s) => s.ven_status === "Paga");
-    const totalBruto = pagas.reduce((a, s) => a + Number(s.ven_subtotal || 0), 0);
-    const desconto = pagas.reduce((a, s) => a + Number(s.ven_desconto || 0), 0);
-    const total = pagas.reduce((a, s) => a + Number(s.ven_total || 0), 0);
-    return { qtd: pagas.length, totalBruto, desconto, total };
-  }, [salesToday]);
+  // Auto-refresh:
+  // - a cada 15s se estiver aberto
+  // - ao voltar foco à janela
+  useEffect(() => {
+    if (!allowed) return;
+
+    let t = null;
+    if (isAberto) {
+      t = setInterval(() => {
+        loadCaixa();
+        loadSalesToday();
+      }, 15000);
+    }
+    const onFocus = () => {
+      loadCaixa();
+      loadSalesToday();
+    };
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      if (t) clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [allowed, isAberto, loadCaixa, loadSalesToday]);
 
   // Ações
   const abrirCaixa = async () => {
-    await api.post("/caixas/abrir", { saldo_inicial: Number(initialBalance || 0) });
-    setOpenOpenModal(false);
-    setInitialBalance("");
-    await loadHoje();
-    setToast("Caixa aberto com sucesso.");
-    setTimeout(() => setToast(""), 1800);
+    try {
+      const payload = {};
+      const n = Number(initialBalance);
+      if (Number.isFinite(n) && n >= 0) payload.saldo_inicial = n;
+      await api.post("/caixas/abrir", payload);
+      setToast("Caixa aberto.");
+      setOpenOpenModal(false);
+      setInitialBalance("");
+      await refetchAll();
+    } catch (e) {
+      console.error(e);
+      const msg = e?.response?.data?.message || "Não foi possível abrir o caixa.";
+      setToast(msg);
+    }
   };
 
   const fecharCaixa = async () => {
-    await api.post("/caixas/fechar");
-    setOpenCloseModal(false);
-    await Promise.all([loadHoje(), loadSalesHoje()]);
-    setToast("Caixa fechado.");
-    setTimeout(() => setToast(""), 1800);
+    try {
+      await api.post("/caixas/fechar");
+      setToast("Caixa fechado.");
+      setOpenCloseModal(false);
+      await refetchAll();
+    } catch (e) {
+      console.error(e);
+      const msg = e?.response?.data?.message || "Não foi possível fechar o caixa.";
+      setToast(msg);
+    }
   };
+
+  const kpis = useMemo(() => {
+    return [
+      { title: "Saldo inicial", value: fmt(cash?.cx_saldo_inicial || 0), tone: "indigo" },
+      { title: "Vendas (pagas)", value: String(resume.qtd), tone: "blue" },
+      { title: "Descontos do dia", value: `- ${fmt(resume.desconto)}`, tone: "amber" },
+      { title: "Recebido hoje", value: fmt(resume.total), tone: "emerald" },
+    ];
+  }, [cash, resume]);
 
   return {
     // gate
     allowed,
     // estado
-    cash,
     loading,
+    cash,
     isAberto,
+    salesToday,
+    resume,
+    kpis,
+    // UI
     openOpenModal,
     setOpenOpenModal,
     openCloseModal,
@@ -149,13 +213,13 @@ export function useCaixa() {
     setInitialBalance,
     toast,
     setToast,
-    salesToday,
-    resume,
     // ações
     abrirCaixa,
     fecharCaixa,
     // utils
     fmt,
+    // expose refetch (útil se quiser puxar manualmente em outras telas)
+    refetchAll,
   };
 }
 

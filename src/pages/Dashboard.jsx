@@ -1,552 +1,606 @@
 /* eslint-disable no-unused-vars */
-"use client"
+// src/pages/Dashboard.jsx
+"use client";
 
-import React from "react"
+import React, { useMemo } from "react";
 import {
-  Menu, RefreshCw, Calendar, TrendingUp, DollarSign, PackageCheck,
-  Activity, PieChart, Clock, ChevronRight, ShoppingCart
-} from "lucide-react"
+  RefreshCw, Users, PackageCheck, Layers, Shapes, FileText, TrendingUp, AlertTriangle, Tag, MapPin,
+} from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine,
-  BarChart, Bar, LineChart, Line, Legend, Cell, PieChart as RePieChart, Pie
-} from "recharts"
+  ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell,
+  LineChart, Line, AreaChart, Area, PieChart, Pie,
+} from "recharts";
+import { useDashboard } from "../hooks/useDashboard";
 
-import { useDashboard } from "../hooks/useDashboard"
-import { useRequisicao, statusColors, statusIcons } from "../hooks/useRequisicao"
-import useAlmoco from "../hooks/useAlmoco"
-import useAlunos from "../hooks/useAlunos"
-
-/* ===== helpers ===== */
-const nf = new Intl.NumberFormat("pt-PT")
-// Exibe explicitamente "STN 12.345,67" para evitar símbolo local.
-const stn = (n) => `STN ${nf.format(Number(n || 0).toFixed ? Number(n || 0).toFixed(2) : Number(n || 0))}`
-const fmtDate = (d) => new Date(d).toLocaleDateString("pt-PT")
-
-const CHART_COLORS = {
-  entrada: "#10b981",
-  saida: "#ef4444",
-  estoque: "#6366f1",
-  receita: "#0ea5e9",
-}
-const TONES = {
-  indigo: "from-indigo-600 to-violet-600",
-  emerald: "from-emerald-600 to-teal-600",
-  sky: "from-sky-500 to-blue-600",
-  amber: "from-amber-500 to-orange-600",
-  pink: "from-pink-500 to-rose-600",
-  slate: "from-slate-900 to-slate-700",
-}
-
-/* ===== Shell / Topbar ===== */
-const Shell = ({ children }) => (
-  <div className=" bg-gradient-to-b ">
-    {/* container amplo + limite grande em telas 3xl/4xl */}
-    <div className="container-linear  p-2">
+/* -------------------------- UI helpers -------------------------- */
+const CardIcon = ({ tone, children }) => {
+  const toneMap = {
+    blue:    "from-blue-500 to-indigo-600",
+    emerald: "from-emerald-500 to-teal-600",
+    amber:   "from-amber-500 to-orange-600",
+    pink:    "from-pink-500 to-rose-600",
+    indigo:  "from-indigo-500 to-violet-600",
+    violet:  "from-violet-500 to-fuchsia-600",
+    purple:  "from-purple-500 to-indigo-600",
+    fuchsia: "from-fuchsia-500 to-pink-600",
+  };
+  return (
+    <span className={`inline-grid place-items-center h-10 w-10 rounded-xl text-white bg-gradient-to-br ${toneMap[tone] || toneMap.blue} shadow`} aria-hidden>
       {children}
-    </div>
-  </div>
-)
+    </span>
+  );
+};
 
-const Topbar = ({ onRefresh }) => (
-  <header className="sticky top-0 z-30 p-4 px-4 sm:px-6 rounded-2xl  backdrop-blur bg-white/70 border border-slate-300">
-    <div className="flex items-center gap-3 justify-between">
-      
-        <div>
-          <h1 className="text-xl sm:text-2xl 2xl:text-3xl font-bold tracking-tight">
-            <span className="bg-gradient-to-r  text-blue-600 bg-clip-text">
-              Dashboard
-            </span>
-          </h1>
-        </div>
-      <div className="flex items-center gap-2">
-     
-        <button
-          onClick={onRefresh}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2"
-          aria-label="Atualizar dados"
-        >
-          <RefreshCw className="h-4 w-4" /> Atualizar
-        </button>
-      </div>
-    </div>
-  </header>
-)
+const Skeleton = ({ className = "" }) => (
+  <div className={`animate-pulse rounded-xl bg-gray-200/60 dark:bg-gray-800/60 ${className}`} />
+);
 
-/* ===== Cards ===== */
-const KpiCard = ({
-  title, value, subtitle, tone = "indigo", icon: Icon = TrendingUp,
-  sparkData = [], dataKey = "v", ariaHint,
-}) => (
-  <article className="rounded-2xl border border-slate-200 bg-white overflow-hidden group focus-within:ring-2 focus-within:ring-indigo-600" aria-label={`${title}: ${value}`}>
-    <div className={`p-4 sm:p-5 bg-gradient-to-br ${TONES[tone]} text-white`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs/5 opacity-90">{subtitle}</p>
-          <h3 className="text-lg 2xl:text-xl font-semibold">{title}</h3>
-        </div>
-        <div className="p-2 rounded-xl bg-white/20">
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </div>
-      </div>
-      {ariaHint && <p className="sr-only">{ariaHint}</p>}
-    </div>
-    <div className="p-4 sm:p-5">
-      <div className="flex items-end justify-between gap-3">
-        <div className="text-2xl sm:text-3xl 2xl:text-2xl font-bold tracking-tight">{value}</div>
-        {sparkData?.length ? (
-          <div className="h-12 w-40 md:w-52 2xl:w-64" aria-hidden="true">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={sparkData}>
-                <defs>
-                  <linearGradient id={`spark-${title}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
-                <Area type="monotone" dataKey={dataKey} stroke="#6366f1" strokeWidth={2} fill={`url(#spark-${title})`} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+const Section = ({ title, subtitle, children, right }) => (
+  <section className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/90 dark:bg-gray-900/70 shadow-sm">
+    <header className="flex items-center justify-between gap-4 px-5 md:px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+      <div>
+        <h2 className="text-base md:text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+        {subtitle ? (
+          <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">{subtitle}</p>
         ) : null}
       </div>
-    </div>
-  </article>
-)
+      {right}
+    </header>
+    <div className="p-5 md:p-6">{children}</div>
+  </section>
+);
 
-/* ===== Subcomponentes de chart ===== */
-function ComposedMovInventory({ data }) {
+const number = (n) => new Intl.NumberFormat("pt-PT").format(Number(n || 0));
+const money = (n) => `STN ${Number(n || 0).toFixed(2)}`;
+
+const Badge = ({ tone = "gray", children }) => {
+  const map = {
+    gray: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700",
+    green: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
+    red: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border-rose-200 dark:border-rose-800",
+    blue: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-200 dark:border-blue-800",
+    amber: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-200 dark:border-amber-800",
+  };
   return (
-    <ResponsiveContainer>
-      <BarChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="date" />
-        <YAxis yAxisId="left" />
-        <YAxis yAxisId="right" orientation="right" />
-        <Tooltip />
-        <Legend />
-        <Bar yAxisId="left" dataKey="entrada" name="Entradas" stackId="a" fill={CHART_COLORS.entrada} />
-        <Bar yAxisId="left" dataKey="saida" name="Saídas" stackId="a" fill={CHART_COLORS.saida} />
-        <Line yAxisId="right" type="monotone" dataKey="estoque" name="Estoque" stroke={CHART_COLORS.estoque} strokeWidth={3} dot={false} />
-      </BarChart>
-    </ResponsiveContainer>
-  )
-}
-const EmptyState = ({ message }) => (
-  <div className="h-[300px] 2xl:h-[360px] flex items-center justify-center text-slate-500">{message}</div>
-)
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${map[tone] || map.gray}`}>
+      {children}
+    </span>
+  );
+};
 
-/* ===== Página ===== */
-export default function OperationsCockpit() {
-  // Inventário/Vendas
+/* ----------------------------- Page ----------------------------- */
+export default function Dashboard() {
   const {
     loading, error, lastUpdated,
-    chartData = { movementData: [], categoryData: [], salesByDay: [] },
-    materials = [], movements = [],
-    COLORS = [],
+    users, materials, types, categories, movements, sales,
+    metrics, chartData, cards, COLORS,
     refresh,
-  } = useDashboard()
+  } = useDashboard();
 
-  // Requisições
-  const { requisicoes = [], canDecideReq } = useRequisicao()
+  // ------- helpers de lookup -------
+  const tipoById = useMemo(() => {
+    const m = new Map();
+    (types || []).forEach((t) => m.set(Number(t.tipo_id ?? t.id), t));
+    return m;
+  }, [types]);
 
-  // Almoço
-  const { precoHoje, relHoje, relMensal, loadMensal, loadingMensal } = useAlmoco()
+  const catById = useMemo(() => {
+    const m = new Map();
+    (categories || []).forEach((c) => m.set(Number(c.cat_id ?? c.categoria_id ?? c.id), c));
+    return m;
+  }, [categories]);
 
-  // Alunos (se precisar futuramente)
-  useAlunos()
+  // ------- dados para gráficos -------
+  const { movementData, categoryData, salesByDay } = chartData;
 
-  /* ===== Derivados ===== */
-  const mov30 = React.useMemo(() => chartData.movementData.slice(-30), [chartData.movementData])
-  const sales30 = React.useMemo(() => chartData.salesByDay?.slice(-30) ?? [], [chartData.salesByDay])
+  const stackedMoves = (movementData || []).map((d) => ({
+    date: d.date,
+    Entrada: d.entrada || d.Entrada || 0,
+    Saida: d.saida || d.Saida || 0,
+  }));
 
-  const inventorySeries = React.useMemo(() => {
-    let acc = 0
-    return mov30.map((d) => {
-      acc += (d.entrada || 0) - (d.saida || 0)
-      return { date: d.date, estoque: acc, entrada: d.entrada || 0, saida: d.saida || 0 }
-    })
-  }, [mov30])
+  const topCategorias = (categoryData || []).slice(0, 6);
 
-  const vendasSpark = React.useMemo(() => sales30.map(d => ({ d: d.date, v: d.vendas || 0 })), [sales30])
-  const receitaSpark = React.useMemo(() => sales30.map(d => ({ d: d.date, v: Number(d.receita || 0) })), [sales30])
-  const saldoSpark = React.useMemo(() => mov30.map(d => ({ d: d.date, v: (d.entrada || 0) - (d.saida || 0) })), [mov30])
+  const pieCategorias = (categoryData || []).slice(0, 6).map((c, i) => ({
+    name: c.name,
+    value: c.value,
+    fill: COLORS[i % COLORS.length],
+  }));
 
-  const lowStock = React.useMemo(() => {
-    return materials
-      .filter(m => Number(m.mat_quantidade_estoque) < Number(m.mat_estoque_minimo))
-      .sort((a, b) => Number(a.mat_quantidade_estoque) - Number(b.mat_quantidade_estoque))
-      .slice(0, 8)
-  }, [materials])
+  // ------- tabelas com mais colunas -------
+  const lowStock = useMemo(() => {
+    const rows = (materials || []).map((m) => {
+      const tipo = tipoById.get(Number(m.mat_fk_tipo ?? m.tipo_id));
+      const catId = Number(tipo?.tipo_fk_categoria ?? tipo?.categoria_id);
+      const cat = catById.get(catId);
+      const qtd = Number(m.mat_quantidade_estoque || 0);
+      const min = Number(m.mat_estoque_minimo || 0);
+      const preco = Number(m.mat_preco || 0);
+      const valor = qtd * preco;
+      return {
+        id: m.mat_id ?? m.id,
+        codigo: m.mat_codigo ?? m.codigo ?? "-",
+        nome: m.mat_nome ?? m.nome ?? "—",
+        tipo: tipo?.tipo_nome ?? "Sem tipo",
+        categoria: cat?.cat_nome ?? cat?.categoria_nome ?? "Sem categoria",
+        local: m.mat_localizacao ?? m.localizacao ?? "—",
+        quantidade: qtd,
+        minimo: min,
+        valor,
+        status: qtd < min ? "baixo" : "ok",
+      };
+    });
+    // ordenar por status e depois por delta (quantidade - minimo)
+    rows.sort((a, b) => {
+      if (a.status !== b.status) return a.status === "baixo" ? -1 : 1;
+      return (a.quantidade - a.minimo) - (b.quantidade - b.minimo);
+    });
+    return rows.slice(0, 12);
+  }, [materials, tipoById, catById]);
 
-  const reqsPendentes = React.useMemo(() => requisicoes.filter(r => String(r.req_status) === "Pendente" && canDecideReq(r)), [requisicoes, canDecideReq])
+  const recentMoves = useMemo(() => {
+    const rows = (movements || []).map((mv) => {
+      const d = new Date(mv.mov_data);
+      const material = (materials || []).find((x) => Number(x.mat_id ?? x.id) === Number(mv.mov_fk_material ?? mv.material_id));
+      return {
+        id: mv.mov_id ?? mv.id,
+        data: Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-PT"),
+        tipo: mv.mov_tipo,
+        material: material?.mat_nome ?? material?.nome ?? "—",
+        quantidade: Number(mv.mov_quantidade || 0),
+        utilizador: mv.mov_user ?? mv.user_name ?? mv.usuario ?? "—",
+        observacao: mv.mov_observacao ?? mv.observacao ?? "",
+      };
+    });
+    rows.sort((a, b) => (a.id < b.id ? 1 : -1));
+    return rows.slice(0, 12);
+  }, [movements, materials]);
 
-  const statusCounts = React.useMemo(() => {
-    const map = new Map()
-    requisicoes.forEach(r => {
-      const s = String(r.req_status || "Desconhecido")
-      map.set(s, (map.get(s) || 0) + 1)
-    })
-    return Array.from(map.entries()).map(([name, value]) => ({ name, value }))
-  }, [requisicoes])
+  const recentSales = useMemo(() => {
+    const rows = (sales || []).map((v) => {
+      const dt = v.ven_data || v.ven_date || v.data || v.created_at || v.updated_at;
+      const d = new Date(dt);
+      return {
+        id: v.ven_id ?? v.id ?? "—",
+        data: Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-PT"),
+        cliente: v.cliente_nome ?? v.cliente ?? "—",
+        itens: Array.isArray(v.itens) ? v.itens.length : (v.items_count ?? v.qtd_itens ?? 0),
+        total: Number(v.ven_total ?? v.total ?? 0),
+        estado: v.status ?? v.estado ?? "—",
+      };
+    });
+    rows.sort((a, b) => (a.id < b.id ? 1 : -1));
+    return rows.slice(0, 12);
+  }, [sales]);
 
-  React.useEffect(() => {
-    const now = new Date()
-    loadMensal?.(now.getFullYear(), now.getMonth() + 1)
-  }, [loadMensal])
+  // --------- header right actions ----------
+  const HeaderRight = (
+    <div className="flex items-center gap-3">
+      {lastUpdated && (
+        <span className="text-xs text-gray-600 dark:text-gray-400">
+          Atualizado:{" "}
+          <b className="text-gray-800 dark:text-gray-200">
+            {new Date(lastUpdated).toLocaleString("pt-PT")}
+          </b>
+        </span>
+      )}
+      <button
+        onClick={refresh}
+        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+        title="Atualizar"
+      >
+        <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+        <span className="hidden sm:inline">Atualizar</span>
+      </button>
+    </div>
+  );
 
-  const almocoSerie = React.useMemo(() => {
-    const dias = relMensal?.dias || []
-    return dias.map(d => ({
-      date: d.data || "",
-      almocos: Number(d.total_almocos || 0),
-      receita: Number(d.total_arrecadado || 0),
-    }))
-  }, [relMensal])
-
-  /* ===== Loading/Erro ===== */
-  if (loading) {
-    return (
-      <Shell>
-        <Topbar onRefresh={refresh} />
-        <div className="py-8 grid gap-6 sm:grid-cols-2 xl:grid-cols-4 3xl:grid-cols-6">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-40 2xl:h-48 rounded-2xl bg-slate-100 animate-pulse" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-10">
-          <div className="h-[360px] 2xl:h-[460px] rounded-2xl bg-slate-100 animate-pulse lg:col-span-2" />
-          <div className="h-[360px] 2xl:h-[460px] rounded-2xl bg-slate-100 animate-pulse" />
-        </div>
-      </Shell>
-    )
-  }
-
-  if (error) {
-    return (
-      <Shell>
-        <Topbar onRefresh={refresh} />
-        <div className="py-24 flex flex-col items-center">
-          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 max-w-md text-center">
-            <h3 className="mt-1 font-semibold text-rose-700">Falha ao carregar</h3>
-            <p className="text-sm text-rose-700/80 mt-1">{error}</p>
-            <button
-              onClick={refresh}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white bg-gradient-to-r from-rose-500 to-red-600 focus-visible:ring-2"
-            >
-              <RefreshCw className="h-4 w-4" /> Tentar novamente
-            </button>
-          </div>
-        </div>
-      </Shell>
-    )
-  }
-
-  /* ===== Página ===== */
   return (
-    <Shell>
-      <Topbar onRefresh={refresh} />
+    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 p-4 md:p-6">
+      {/* Header */}
+      <header className="mb-5 md:mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+            Dashboard
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Visão geral de utilizadores, materiais, movimentações e vendas
+          </p>
+        </div>
+        {HeaderRight}
+      </header>
 
-      {/* KPIs principais */}
-      <div className="py-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-6 3xl:grid-cols-6">
-        <KpiCard
-          title="Vendas (30d)"
-          subtitle="Quantidade de vendas"
-          value={nf.format(sales30.reduce((s, d) => s + (d.vendas || 0), 0))}
-          icon={ShoppingCart}
-          tone="indigo"
-          sparkData={vendasSpark}
-        />
-        <KpiCard
-          title="Receita (30d)"
-          subtitle="Total faturado"
-          value={stn(sales30.reduce((s, d) => s + Number(d.receita || 0), 0))}
-          icon={DollarSign}
-          tone="emerald"
-          sparkData={receitaSpark}
-        />
-        <KpiCard
-          title="Saldo (30d)"
-          subtitle="Entradas - Saídas"
-          value={nf.format(saldoSpark.reduce((s, d) => s + Number(d.v || 0), 0))}
-          icon={TrendingUp}
-          tone="sky"
-          sparkData={saldoSpark}
-        />
-        <KpiCard
-          title="Baixo Estoque"
-          subtitle="Itens abaixo do mínimo"
-          value={nf.format(lowStock.length)}
-          icon={PackageCheck}
-          tone="amber"
-        />
-        <KpiCard
-          title="Req. por Responder"
-          value={nf.format(reqsPendentes.length)}
-          icon={Clock}
-          tone="pink"
-        />
-        <KpiCard
-          title="Almoço Hoje"
-          subtitle={`Preço: ${stn(precoHoje || 0)}`}
-          value={`${nf.format(relHoje?.totais?.total_almocos || 0)} • ${stn(relHoje?.totais?.total_arrecadado || 0)}`}
-          icon={DollarSign}
-          tone="slate"
-        />
-      </div>
+      {/* Alerta de erro */}
+      {error && (
+        <div className="mb-5 rounded-xl border border-rose-300 bg-rose-50 text-rose-800 px-4 py-3 flex items-center gap-2">
+          <AlertTriangle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
 
-      {/* Seção de gráficos principais */}
-      <div className="grid grid-cols-1  gap-6">
-  
-        {/* Receita diária (30d) */}
-        <section aria-labelledby="receita-dia" className="space-y-3 ">
-          <div className="flex items-center gap-3">
-            <span className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-              <DollarSign className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="receita-dia" className="text-lg sm:text-xl 2xl:text-2xl font-bold">Receita Diária</h2>
-              <p className="text-sm text-slate-600">Tendência de faturamento nos últimos 30 dias</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-300 bg-white p-4">
-            {sales30.length ? (
-              <div className="h-[340px] md:h-[380px] 2xl:h-[460px]">
+      {/* Cards */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-5 mb-5 md:mb-6">
+        {loading
+          ? Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-[108px]" />)
+          : cards.map((c, idx) => (
+              <div
+                key={idx}
+                className="group relative overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/90 dark:bg-gray-900/70 shadow-sm hover:shadow-md transition-all"
+              >
+                <div className="absolute -top-24 right-0 h-40 w-40 rounded-full blur-2xl opacity-10 group-hover:opacity-20 transition-opacity"
+                  style={{
+                    background:
+                      c.tone === "blue"    ? "radial-gradient(circle, #60A5FA, transparent)" :
+                      c.tone === "emerald" ? "radial-gradient(circle, #34D399, transparent)" :
+                      c.tone === "amber"   ? "radial-gradient(circle, #F59E0B, transparent)" :
+                      c.tone === "pink"    ? "radial-gradient(circle, #F472B6, transparent)" :
+                      c.tone === "indigo"  ? "radial-gradient(circle, #818CF8, transparent)" :
+                      c.tone === "violet"  ? "radial-gradient(circle, #A78BFA, transparent)" :
+                      c.tone === "purple"  ? "radial-gradient(circle, #A78BFA, transparent)" :
+                      "radial-gradient(circle, #F0ABFC, transparent)",
+                  }}
+                />
+                <div className="p-5">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{c.label}</p>
+                      <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                        {c.value}
+                      </div>
+                      {c.secondaryValue && (
+                        <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                          {c.secondaryValue}
+                        </div>
+                      )}
+                    </div>
+                    <CardIcon tone={c.tone}>
+                      {iconForCard(c.iconName)}
+                    </CardIcon>
+                  </div>
+                  {typeof c.trend === "number" && (
+                    <div className="mt-3 text-xs inline-flex items-center gap-1 px-2 py-1 rounded-full
+                                    bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
+                      <TrendingUp size={14} className={c.trend < 0 ? "rotate-180" : ""} />
+                      {c.trend >= 0 ? "+" : "-"}{Math.abs(c.trend)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+      </section>
+
+      {/* Grids de gráficos */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 md:gap-6 mb-6">
+        {/* Coluna 1: Movimentações por dia (comparação) */}
+        <div className="xl:col-span-2">
+          <Section
+            title="Movimentações por tipo"
+            subtitle="Entradas x Saídas (últimos 10 dias)"
+          >
+            {loading ? (
+              <Skeleton className="h-72" />
+            ) : (
+              <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={sales30}>
-                    <defs>
-                      <linearGradient id="g-receita" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={CHART_COLORS.receita} stopOpacity={0.35} />
-                        <stop offset="95%" stopColor={CHART_COLORS.receita} stopOpacity={0.05} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" />
+                  <BarChart data={stackedMoves}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                     <XAxis dataKey="date" />
                     <YAxis />
-                    <Tooltip formatter={(v) => [stn(v), "Receita"]} />
-                    <ReferenceLine y={0} stroke="#94a3b8" />
-                    <Area type="monotone" dataKey="receita" stroke={CHART_COLORS.receita} strokeWidth={3} fill="url(#g-receita)" />
+                    <Tooltip />
+                    <Legend />
+                    {/* Cores distintas e radius 300 */}
+                    <Bar
+                      dataKey="Entrada"
+                      name="Entrada"
+                      fill="#4F46E5"           // indigo-600
+                      stroke="#1F2937"
+                      strokeOpacity={0.2}
+                      radius={[300, 300, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="Saida"
+                      name="Saída"
+                      fill="#10B981"           // emerald-500
+                      stroke="#1F2937"
+                      strokeOpacity={0.2}
+                      radius={[300, 300, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </Section>
+        </div>
+
+        {/* Coluna 2: Distribuição (pizza) */}
+        <div className="xl:col-span-1">
+          <Section
+            title="Participação por categoria"
+            subtitle="Top 6 categorias por número de materiais"
+          >
+            {loading ? (
+              <Skeleton className="h-72" />
+            ) : (
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Tooltip />
+                    <Legend />
+                    <Pie
+                      data={pieCategorias}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={54}
+                      outerRadius={96}
+                      stroke="#111827"
+                      strokeOpacity={0.15}
+                    >
+                      {pieCategorias.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </Section>
+        </div>
+      </div>
+
+      {/* Mais gráficos + Tabelas com MAIS COLUNAS */}
+      <div className="grid grid-cols-1 2xl:grid-cols-3 gap-5 md:gap-6">
+        {/* Top categorias (barras coloridas + radius 300) */}
+        <div className="2xl:col-span-1">
+          <Section
+            title="Top categorias (por materiais)"
+            subtitle="6 maiores categorias por contagem"
+          >
+            {loading ? (
+              <Skeleton className="h-72" />
+            ) : (
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topCategorias}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar
+                      dataKey="value"
+                      name="Materiais"
+                      radius={[300, 300, 0, 0]}
+                      stroke="#111827"
+                      strokeOpacity={0.2}
+                    >
+                      {topCategorias.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </Section>
+        </div>
+
+        {/* Vendas por dia (área + linha) */}
+        <div className="2xl:col-span-2">
+          <Section
+            title="Vendas por dia"
+            subtitle="Últimos 10 registos diários"
+          >
+            {loading ? (
+              <Skeleton className="h-72" />
+            ) : (
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={salesByDay}>
+                    <defs>
+                      <linearGradient id="gradReceita" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.7} />
+                        <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0.05} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Area
+                      type="monotone"
+                      dataKey="receita"
+                      name="Receita"
+                      stroke="#8B5CF6"     // violet-500
+                      fill="url(#gradReceita)"
+                      strokeWidth={2}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="vendas"
+                      name="Vendas"
+                      stroke="#06B6D4"     // cyan-500
+                      strokeWidth={2}
+                      dot={false}
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-            ) : <EmptyState message="Sem dados de receita." />}
-          </div>
-        </section>
-     
+            )}
+          </Section>
+        </div>
       </div>
-         {/* Movimentações + Estoque */}
-        <section aria-labelledby="mix-estoque" className="space-y-3 ">
-          <div className="flex items-center gap-3">
-            <span className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-              <Activity className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="mix-estoque" className="text-lg sm:text-xl 2xl:text-2xl font-bold">Fluxo de Movimentações & Estoque</h2>
-              <p className="text-sm text-slate-600">Entradas/saídas por dia e curva acumulada de estoque</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-300 bg-white p-4">
-            {inventorySeries.length ? (
-              <div className="h-[340px] md:h-[380px] 2xl:h-[460px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedMovInventory data={inventorySeries} />
-                </ResponsiveContainer>
+
+      {/* Tabelas detalhadas — MAIS COLUNAS */}
+      <div className="mt-6 grid grid-cols-1 2xl:grid-cols-3 gap-5 md:gap-6">
+        {/* Materiais / Estoque */}
+        <div className="2xl:col-span-2">
+          <Section
+            title="Materiais — Estoque"
+            subtitle="Detalhes de localização, tipo, categoria e status"
+            right={<Badge tone="amber"><Tag size={12}/> {materials.length} itens</Badge>}
+          >
+            {loading ? (
+              <Skeleton className="h-80" />
+            ) : (
+              <div className="overflow-auto rounded-xl border border-gray-200 dark:border-gray-800">
+                <table className="min-w-[880px] w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/70 border-b border-gray-200 dark:border-gray-800">
+                    <tr className="text-left text-xs uppercase tracking-wide text-gray-600 dark:text-gray-400">
+                      <th className="px-4 py-3">Código</th>
+                      <th className="px-4 py-3">Material</th>
+                      <th className="px-4 py-3">Tipo</th>
+                      <th className="px-4 py-3">Categoria</th>
+                      <th className="px-4 py-3">Localização</th>
+                      <th className="px-4 py-3 text-right">Qtd</th>
+                      <th className="px-4 py-3 text-right">Mín.</th>
+                      <th className="px-4 py-3 text-right">Valor</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                    {lowStock.map((r) => (
+                      <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                        <td className="px-4 py-3 font-mono text-gray-700 dark:text-gray-200">{r.codigo}</td>
+                        <td className="px-4 py-3 text-gray-900 dark:text-gray-100 font-medium">{r.nome}</td>
+                        <td className="px-4 py-3">{r.tipo}</td>
+                        <td className="px-4 py-3">{r.categoria}</td>
+                        <td className="px-4 py-3 inline-flex items-center gap-1"><MapPin size={14} className="text-gray-400" />{r.local}</td>
+                        <td className="px-4 py-3 text-right">{number(r.quantidade)}</td>
+                        <td className="px-4 py-3 text-right">{number(r.minimo)}</td>
+                        <td className="px-4 py-3 text-right font-mono">{money(r.valor)}</td>
+                        <td className="px-4 py-3">
+                          {r.status === "baixo"
+                            ? <Badge tone="red">Estoque baixo</Badge>
+                            : <Badge tone="green">OK</Badge>}
+                        </td>
+                      </tr>
+                    ))}
+                    {lowStock.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-gray-600 dark:text-gray-400">
+                          Sem materiais para exibir.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            ) : <EmptyState message="Sem dados de movimentações." />}
-            {/* Tabela sr-only */}
-            <div className="sr-only">
-              <table>
-                <caption>Entradas, saídas e estoque acumulado por dia</caption>
-                <thead><tr><th>Data</th><th>Entradas</th><th>Saídas</th><th>Estoque</th></tr></thead>
-                <tbody>
-                  {inventorySeries.map((r, i) => (
-                    <tr key={i}><td>{r.date}</td><td>{r.entrada}</td><td>{r.saida}</td><td>{r.estoque}</td></tr>
+            )}
+          </Section>
+        </div>
+
+        {/* Movimentações Recentes */}
+        <div className="2xl:col-span-1">
+          <Section
+            title="Movimentações recentes"
+            subtitle="Últimos registos"
+            right={<Badge tone="blue"><RefreshCw size={12}/> {movements.length}</Badge>}
+          >
+            {loading ? (
+              <Skeleton className="h-80" />
+            ) : (
+              <div className="overflow-auto rounded-xl border border-gray-200 dark:border-gray-800">
+                <table className="min-w-[760px] w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/70 border-b border-gray-200 dark:border-gray-800">
+                    <tr className="text-left text-xs uppercase tracking-wide text-gray-600 dark:text-gray-400">
+                      <th className="px-4 py-3">Data</th>
+                      <th className="px-4 py-3">Tipo</th>
+                      <th className="px-4 py-3">Material</th>
+                      <th className="px-4 py-3 text-right">Quantidade</th>
+                      <th className="px-4 py-3">Utilizador</th>
+                      <th className="px-4 py-3">Observação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                    {recentMoves.map((r) => (
+                      <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                        <td className="px-4 py-3 whitespace-nowrap">{r.data}</td>
+                        <td className="px-4 py-3">
+                          {r.tipo === "entrada" ? <Badge tone="green">Entrada</Badge> : <Badge tone="amber">Saída</Badge>}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{r.material}</td>
+                        <td className="px-4 py-3 text-right">{number(r.quantidade)}</td>
+                        <td className="px-4 py-3">{r.utilizador}</td>
+                        <td className="px-4 py-3">{r.observacao || "—"}</td>
+                      </tr>
+                    ))}
+                    {recentMoves.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-10 text-center text-gray-600 dark:text-gray-400">
+                          Sem movimentações recentes.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        </div>
+      </div>
+
+      {/* Vendas recentes — tabela ampla */}
+      <div className="mt-6">
+        <Section
+          title="Vendas recentes"
+          subtitle="Últimos registos de vendas com mais colunas"
+          right={<Badge tone="purple"><FileText size={12}/> {sales.length}</Badge>}
+        >
+          {loading ? (
+            <Skeleton className="h-80" />
+          ) : (
+            <div className="overflow-auto rounded-xl border border-gray-200 dark:border-gray-800">
+              <table className="min-w-[860px] w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/70 border-b border-gray-200 dark:border-gray-800">
+                  <tr className="text-left text-xs uppercase tracking-wide text-gray-600 dark:text-gray-400">
+                    <th className="px-4 py-3">#</th>
+                    <th className="px-4 py-3">Data</th>
+                    <th className="px-4 py-3">Cliente</th>
+                    <th className="px-4 py-3 text-right">Itens</th>
+                    <th className="px-4 py-3 text-right">Total</th>
+                    <th className="px-4 py-3">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                  {recentSales.map((v) => (
+                    <tr key={v.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                      <td className="px-4 py-3 font-mono">{v.id}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{v.data}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{v.cliente}</td>
+                      <td className="px-4 py-3 text-right">{number(v.itens)}</td>
+                      <td className="px-4 py-3 text-right font-mono">{money(v.total)}</td>
+                      <td className="px-4 py-3">
+                        <Badge tone="gray">{v.estado}</Badge>
+                      </td>
+                    </tr>
                   ))}
+                  {recentSales.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10 text-center text-gray-600 dark:text-gray-400">
+                        Nenhuma venda encontrada.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-          </div>
-        </section>
-
-      {/* Requisições: status + baixo estoque + timeline */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-        {/* Pizza de status de requisições */}
-        <section aria-labelledby="req-status" className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-              <PieChart className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="req-status" className="text-lg sm:text-xl 2xl:text-2xl font-bold">Requisições por Status</h2>
-              <p className="text-sm text-slate-600">Distribuição atual</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-300 bg-white p-4">
-            {statusCounts.length ? (
-              <div className="h-[340px] md:h-[380px] 2xl:h-[460px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RePieChart>
-                    <Pie data={statusCounts} cx="50%" cy="50%" innerRadius={70} outerRadius={115} paddingAngle={3} dataKey="value">
-                      {statusCounts.map((s, i) => (
-                        <Cell key={i} fill={pickStatusColor(s.name)} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v, n, p) => [v, p?.payload?.name]} />
-                    <Legend />
-                  </RePieChart>
-                </ResponsiveContainer>
-              </div>
-            ) : <EmptyState message="Sem requisições para agrupar." />}
-            <div className="mt-3 flex flex-wrap gap-2">
-              {statusCounts.map((s, i) => (
-                <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-xs ${statusColors[s.name] || "bg-slate-50 text-slate-700 border-slate-300"}`}>
-                  <span aria-hidden="true">{statusIcons[s.name] || "•"}</span> {s.name}: <strong>{s.value}</strong>
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Baixo estoque */}
-        <section aria-labelledby="baixo-estoque" className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-              <PackageCheck className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="baixo-estoque" className="text-lg sm:text-xl 2xl:text-2xl font-bold">Materiais com Baixo Estoque</h2>
-              <p className="text-sm text-slate-600">Priorize o reabastecimento</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-300 bg-white">
-            {lowStock.length ? (
-              <ul role="list" className="divide-y divide-slate-200">
-                {lowStock.map((m, i) => (
-                  <li key={i} className="p-4 sm:p-5 flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">{m.mat_nome || `Material #${m.mat_id}`}</p>
-                      <p className="text-xs text-slate-600">
-                        Estoque: <strong>{nf.format(Number(m.mat_quantidade_estoque) || 0)}</strong> • Mín.:{" "}
-                        <strong>{nf.format(Number(m.mat_estoque_minimo) || 0)}</strong>
-                      </p>
-                    </div>
-                    <button className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200">
-                      Detalhes <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : <EmptyState message="Sem itens abaixo do mínimo." />}
-          </div>
-        </section>
-
-        {/* Timeline movimentações */}
-        <section aria-labelledby="timeline" className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-              <Clock className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 id="timeline" className="text-lg sm:text-xl 2xl:text-2xl font-bold">Últimas Movimentações</h2>
-              <p className="text-sm text-slate-600">Entradas e saídas recentes</p>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-300 bg-white p-4">
-            {movements?.length ? (
-              <ol className="relative border-s-l border-slate-300 pl-6 space-y-5 max-h-[460px] 2xl:max-h-[560px] overflow-auto">
-                {movements.slice(-14).reverse().map((mv, i) => {
-                  const tipo = mv.mov_tipo === "entrada" ? "Entrada" : "Saída"
-                  const corDot = mv.mov_tipo === "entrada" ? "bg-emerald-500" : "bg-rose-500"
-                  return (
-                    <li key={i}>
-                      <span className={`absolute -left-1.5 h-3 w-3 rounded-full ${corDot}`}></span>
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-medium">{tipo} • {mv.mov_motivo || "Mov."}</p>
-                          <p className="text-xs text-slate-600">
-                            Qtd: <strong>{nf.format(Number(mv.mov_quantidade || 0))}</strong>
-                            {mv.mov_valor ? <> • Valor: <strong>{stn(Number(mv.mov_valor || 0))}</strong></> : null}
-                          </p>
-                        </div>
-                        <time className="text-xs text-slate-600">{fmtDate(mv.mov_data)}</time>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ol>
-            ) : <EmptyState message="Sem movimentações recentes." />}
-          </div>
-        </section>
+          )}
+        </Section>
       </div>
-
-      {/* Resumos textuais */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 my-8">
-        <article className="rounded-2xl border border-slate-300 bg-white p-5">
-          <h3 className="text-base 2xl:text-lg font-semibold">Resumo de Inventário</h3>
-          <p className="mt-2 text-sm 2xl:text-base text-slate-700">
-            Nos últimos <strong>30 dias</strong>, houve <strong>{nf.format(mov30.reduce((s,d)=>s+(d.entrada||0),0))}</strong> entradas e{" "}
-            <strong>{nf.format(mov30.reduce((s,d)=>s+(d.saida||0),0))}</strong> saídas. O saldo acumulado é{" "}
-            <strong>{nf.format(saldoSpark.reduce((s,d)=>s+Number(d.v||0),0))}</strong>.
-          </p>
-        </article>
-        <article className="rounded-2xl border border-slate-300 bg-white p-5">
-          <h3 className="text-base 2xl:text-lg font-semibold">Resumo de Requisições</h3>
-          <p className="mt-2 text-sm 2xl:text-base text-slate-700">
-            Existem <strong>{nf.format(reqsPendentes.length)}</strong> requisições <strong>pendentes</strong> sob sua responsabilidade.
-            A distribuição por status está no gráfico ao lado. Priorize as pendentes para manter o fluxo operacional.
-          </p>
-        </article>
-        <article className="rounded-2xl border border-slate-300 bg-white p-5">
-          <h3 className="text-base 2xl:text-lg font-semibold">Resumo de Almoço</h3>
-          <p className="mt-2 text-sm 2xl:text-base text-slate-700">
-            Hoje foram marcados <strong>{nf.format(relHoje?.totais?.total_almocos || 0)}</strong> almoços, totalizando{" "}
-            <strong>{stn(relHoje?.totais?.total_arrecadado || 0)}</strong> (preço unitário {stn(precoHoje || 0)}).
-          </p>
-          <div className="mt-3">
-            <h4 className="text-sm 2xl:text-base font-medium">Mensal (tendência)</h4>
-            <div className="mt-2 h-28 2xl:h-36">
-              {almocoSerie?.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={almocoSerie}>
-                    <defs>
-                      <linearGradient id="g-almoco" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.05} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="date" hide />
-                    <YAxis hide />
-                    <Tooltip formatter={(v, n) => n === "almocos" ? [nf.format(Number(v)), "Almoços"] : [stn(Number(v)), "Receita"]} />
-                    <Area type="monotone" dataKey="almocos" stroke="#0ea5e9" fill="url(#g-almoco)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-slate-400 text-sm">
-                  {loadingMensal ? "Carregando..." : "Sem dados mensais."}
-                </div>
-              )}
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <footer className="py-8 text-xs 2xl:text-sm text-slate-500">
-        Última atualização: {lastUpdated ? new Date(lastUpdated).toLocaleString("pt-PT") : "—"}
-      </footer>
-    </Shell>
-  )
+    </main>
+  );
 }
 
-/* ===== util para cores da pizza de status ===== */
-function pickStatusColor(name) {
-  const map = {
-    Pendente: "#f59e0b",
-    Aprovada: "#10b981",
-    Rejeitada: "#ef4444",
-    Cancelada: "#94a3b8",
-    Parcial: "#38bdf8",
-    "Em Uso": "#8b5cf6",
-    Atendida: "#059669",
-    Devolvida: "#14b8a6",
+/* --------------------------- Icons map --------------------------- */
+function iconForCard(name) {
+  switch (name) {
+    case "Users":        return <Users size={20} />;
+    case "PackageCheck": return <PackageCheck size={20} />;
+    case "Layers":       return <Layers size={20} />;
+    case "Shapes":       return <Shapes size={20} />;
+    case "RefreshCw":    return <RefreshCw size={20} />;
+    case "FileText":     return <FileText size={20} />;
+    default:             return <FileText size={20} />;
   }
-  return map[name] || "#6366f1"
 }

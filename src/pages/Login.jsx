@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mail, Lock, Loader2, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Mail, Lock, Loader2, Eye, EyeOff, ShieldCheck, KeyRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import useLogin from "../hooks/useLogin";
 
-// ordem preferida para redirecionamento
+/* ==================== Rotas por capacidade ==================== */
 const COMMON_ORDER = [
   "venda:visualizar",
   "materiais:visualizar",
@@ -16,17 +16,12 @@ const COMMON_ORDER = [
   "utilizador:visualizar",
   "ajuda:visualizar",
 ];
-const ADMIN_FIRST = [
-  "dashboard:visualizar",
-  "relatorios:visualizar",
-  "recibo:visualizar",
-];
+const ADMIN_FIRST = ["dashboard:visualizar", "relatorios:visualizar", "recibo:visualizar"];
 
-// mapeia module:action -> path
 const CAP_TO_PATH = {
   "dashboard:visualizar": "/dashboard",
   "relatorios:visualizar": "/relatorios",
-  "recibo:visualizar": "/relatorios", // ajuste para /recibos se tiver essa rota
+  "recibo:visualizar": "/relatorios", // ajuste para /recibos caso exista
   "venda:visualizar": "/vendas",
   "materiais:visualizar": "/materiais",
   "requisicoes:visualizar": "/requisicoes",
@@ -43,168 +38,265 @@ function getFirstAllowedPath(caps = [], roles = []) {
   for (const cap of order) {
     if (set.has(cap)) return CAP_TO_PATH[cap];
   }
-  // fallback mais seguro: Ajuda (está no baseline)
-  return "/ajuda";
+  return "/ajuda"; // fallback seguro
 }
 
+/* ==================== Componente ==================== */
 export default function Login({ setIsAuthenticated }) {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
-  const navigate = useNavigate();
+
   const { login, isLoading, erro } = useLogin();
+  const navigate = useNavigate();
 
   const emailInputRef = useRef(null);
   const errorRef = useRef(null);
   const pwdInputId = "login-password-input";
 
-  useEffect(() => { emailInputRef.current?.focus(); }, []);
-  useEffect(() => { if (erro) setTimeout(() => errorRef.current?.focus(), 0); }, [erro]);
+  useEffect(() => {
+    emailInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (erro) {
+      // move o foco para a mensagem de erro (a11y)
+      setTimeout(() => errorRef.current?.focus(), 0);
+    }
+  }, [erro]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // eslint-disable-next-line no-unused-vars
-    const { ok, caps, nome } = await login(email, senha);
-    if (ok) {
-      setIsAuthenticated?.(true);
-      const roles = JSON.parse(localStorage.getItem("roles") || "[]");
-      const capsArr = caps || JSON.parse(localStorage.getItem("caps") || "[]");
-      const destination = getFirstAllowedPath(capsArr, roles);
-      navigate(destination, { replace: true });
-    }
+    const { ok, caps } = await login(email, senha);
+    if (!ok) return;
+
+    setIsAuthenticated?.(true);
+    const roles = JSON.parse(localStorage.getItem("roles") || "[]");
+    const capsArr = caps || JSON.parse(localStorage.getItem("caps") || "[]");
+    const destination = getFirstAllowedPath(capsArr, roles);
+    navigate(destination, { replace: true });
   };
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2 bg-[radial-gradient(1200px_600px_at_20%_-10%,_rgba(108,99,255,0.15),_transparent),radial-gradient(800px_400px_at_90%_-10%,_rgba(79,70,229,0.18),_transparent)]">
-      {/* Lado visual */}
-      <div className="hidden md:flex items-center justify-center bg-gradient-to-br from-gray-950 via-gray-900 to-gray-800 relative">
-        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10" aria-hidden="true" />
-        <div className="relative text-center text-white px-10">
-          <img src="/info11.png" alt="Logótipo" className="mx-auto h-24 w-auto mb-6 opacity-95" />
-          <h1 className="text-3xl font-bold tracking-tight">Gestão de Materiais</h1>
-          <p className="mt-2 text-sm text-white/80">Controle moderno, seguro e responsivo.</p>
-          <div className="mt-8 inline-flex items-center gap-2 text-white/80 text-sm bg-white/10 px-3 py-1.5 rounded-full border border-white/15">
+    <main
+      className="
+        min-h-screen w-full
+        bg-[radial-gradient(1200px_600px_at_0%_-10%,rgba(99,102,241,0.16),transparent),radial-gradient(900px_450px_at_100%_0%,rgba(59,130,246,0.12),transparent)]
+        dark:bg-[radial-gradient(1200px_600px_at_0%_-10%,rgba(99,102,241,0.22),transparent),radial-gradient(900px_450px_at_100%_0%,rgba(59,130,246,0.18),transparent)]
+        grid lg:grid-cols-2
+      "
+    >
+      {/* Painel visual / branding */}
+      <section
+        className="
+          relative hidden lg:flex items-center justify-center overflow-hidden
+          bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800
+        "
+        aria-hidden="true"
+      >
+        {/* Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="size-full bg-[url('/grid.svg')] bg-center" />
+        </div>
+
+        {/* Glow */}
+        <div className="absolute -top-24 -left-24 size-[500px] rounded-full blur-3xl bg-indigo-600/20" />
+        <div className="absolute -bottom-24 -right-24 size-[500px] rounded-full blur-3xl bg-blue-500/20" />
+
+        {/* Conteúdo */}
+        <div className="relative text-center text-white px-12 max-w-lg">
+          <img
+            src="/info11.png"
+            alt="Logótipo"
+            className="mx-auto h-20 w-auto mb-6 opacity-95 select-none"
+          />
+          <h1 className="text-3xl font-semibold tracking-tight">Gestão de Materiais</h1>
+          <p className="mt-2 text-sm text-white/75">
+            Plataforma rápida, segura e responsiva para o seu dia a dia.
+          </p>
+
+          <div className="mt-8 inline-flex items-center gap-2 text-white/85 text-sm bg-white/10 px-3 py-1.5 rounded-full border border-white/15">
             <ShieldCheck size={16} aria-hidden="true" />
-            Segurança de sessão com JWT
+            Sessão protegida por JWT
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* Formulário */}
-      <div className="flex items-center justify-center p-6">
-        <form
-          onSubmit={handleSubmit}
-          className="w-full max-w-sm bg-white/80 backdrop-blur-md border border-gray-200 rounded-2xl shadow-xl p-6"
-          noValidate
-          aria-labelledby="login-title"
+      {/* Painel de autenticação */}
+      <section className="flex items-center justify-center p-2 sm:p-2">
+        <div
+          className="
+            w-full max-w-sm
+            rounded-2xl border border-slate-200/70 bg-white/80 shadow-xl backdrop-blur
+            dark:border-slate-800 dark:bg-slate-900/70
+          "
+          role="region"
+          aria-label="Formulário de autenticação"
         >
-          <h2 id="login-title" className="text-2xl font-bold text-gray-900 text-center">Entrar</h2>
-          <p className="text-sm text-gray-600 text-center mt-1">Use as suas credenciais</p>
-
-          <div className="sr-only" role="status" aria-live="polite">
-            {isLoading ? "A autenticar…" : "Formulário pronto."}
-          </div>
-
-          <div className="mt-6 space-y-4">
-            {/* Email */}
-            <div>
-              <label htmlFor="login-email" className="block text-xs font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} aria-hidden="true" />
-                <input
-                  id="login-email"
-                  ref={emailInputRef}
-                  name="email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="username"
-                  placeholder="email@exemplo.com"
-                  className="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={isLoading}
-                  aria-invalid={!!erro}
-                />
-              </div>
+          <header className="px-6 pt-6">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+              <KeyRound size={20} aria-hidden="true" />
             </div>
+            <h2 id="login-title" className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+              Entrar
+            </h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              Use as suas credenciais para aceder ao sistema.
+            </p>
 
-            {/* Palavra-passe */}
-            <div>
-              <label htmlFor={pwdInputId} className="block text-xs font-medium text-gray-700 mb-1">
-                Palavra-passe
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} aria-hidden="true" />
-                <input
-                  id={pwdInputId}
-                  name="password"
-                  type={showPwd ? "text" : "password"}
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  onKeyUp={(e) => setCapsLockOn(e.getModifierState && e.getModifierState("CapsLock"))}
-                  required
-                  disabled={isLoading}
-                  aria-invalid={!!erro}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPwd((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800 p-1 rounded"
-                  aria-label={showPwd ? "Ocultar palavra-passe" : "Mostrar palavra-passe"}
-                  aria-pressed={showPwd}
-                  aria-controls={pwdInputId}
+            {/* status para leitores de ecrã */}
+            <p className="sr-only" role="status" aria-live="polite">
+              {isLoading ? "A autenticar…" : "Formulário pronto."}
+            </p>
+          </header>
+
+          <form onSubmit={handleSubmit} noValidate className="p-6 pt-4">
+            <div className="space-y-4">
+              {/* Email */}
+              <div>
+                <label
+                  htmlFor="login-email"
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
                 >
-                  {showPwd ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
-                </button>
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    size={18}
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="login-email"
+                    ref={emailInputRef}
+                    name="email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="username"
+                    placeholder="email@exemplo.com"
+                    className="
+                      w-full rounded-lg border border-slate-300 bg-white/80 pl-10 pr-3 py-2.5
+                      text-slate-900 placeholder:text-slate-400
+                      focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
+                      dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100
+                    "
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    disabled={isLoading}
+                    aria-invalid={!!erro}
+                  />
+                </div>
               </div>
-              {capsLockOn && <p className="text-[11px] text-amber-600 mt-1">Caps Lock ativado</p>}
+
+              {/* Palavra-passe */}
+              <div>
+                <label
+                  htmlFor={pwdInputId}
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                >
+                  Palavra-passe
+                </label>
+                <div className="relative">
+                  <Lock
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    size={18}
+                    aria-hidden="true"
+                  />
+                  <input
+                    id={pwdInputId}
+                    name="password"
+                    type={showPwd ? "text" : "password"}
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    className="
+                      w-full rounded-lg border border-slate-300 bg-white/80 pl-10 pr-10 py-2.5
+                      text-slate-900 placeholder:text-slate-400
+                      focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
+                      dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100
+                    "
+                    value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
+                    onKeyUp={(e) =>
+                      setCapsLockOn(e.getModifierState && e.getModifierState("CapsLock"))
+                    }
+                    required
+                    disabled={isLoading}
+                    aria-invalid={!!erro}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwd((v) => !v)}
+                    className="
+                      absolute right-2 top-1/2 -translate-y-1/2 rounded p-1
+                      text-slate-600 hover:text-slate-800
+                      dark:text-slate-300 dark:hover:text-slate-100
+                      focus:outline-none focus:ring-2 focus:ring-indigo-500
+                    "
+                    aria-label={showPwd ? "Ocultar palavra-passe" : "Mostrar palavra-passe"}
+                    aria-pressed={showPwd}
+                    aria-controls={pwdInputId}
+                  >
+                    {showPwd ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                  </button>
+                </div>
+
+                {capsLockOn && (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Caps Lock ativado</p>
+                )}
+              </div>
+
+              {/* Erro */}
+              {erro && (
+                <div
+                  ref={errorRef}
+                  tabIndex={-1}
+                  className="
+                    rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-700
+                    dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200
+                  "
+                  role="alert"
+                  aria-live="assertive"
+                >
+                  {erro}
+                </div>
+              )}
+
+              {/* Botão */}
+              <button
+                type="submit"
+                disabled={isLoading}
+                aria-busy={isLoading}
+                className={`
+                  inline-flex w-full items-center justify-center gap-2 rounded-lg
+                  bg-indigo-600 px-4 py-2.5 font-semibold text-white shadow-sm
+                  transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500
+                  ${isLoading ? "opacity-80 cursor-not-allowed" : ""}
+                `}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="animate-spin" size={18} aria-hidden="true" />
+                    A autenticar…
+                  </>
+                ) : (
+                  "Entrar"
+                )}
+              </button>
             </div>
 
-            {/* Erro */}
-            {erro && (
-              <div
-                ref={errorRef}
-                tabIndex={-1}
-                className="text-red-700 text-sm bg-red-50 border border-red-200 rounded-lg p-2"
-                role="alert"
-                aria-live="assertive"
-              >
-                {erro}
-              </div>
-            )}
-
-            {/* Botão */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              aria-busy={isLoading}
-              className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg flex items-center justify-center gap-2 transition ${
-                isLoading ? "opacity-75 cursor-not-allowed" : ""
-              }`}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="animate-spin" size={18} aria-hidden="true" />
-                  A autenticar…
-                </>
-              ) : (
-                "Entrar"
-              )}
-            </button>
-          </div>
-
-          <p className="text-[11px] text-gray-500 text-center mt-4">
-            Dica: use <kbd className="px-1 py-0.5 border rounded">Ctrl/⌘ K</kbd> para navegar rápido no app
-          </p>
-        </form>
-      </div>
-    </div>
+            {/* Dicas / acessos rápidos */}
+            <p className="mt-4 text-center text-[11px] text-slate-500 dark:text-slate-400">
+              Dica: use{" "}
+              <kbd className="rounded border border-slate-300 px-1 py-0.5 text-slate-700 dark:border-slate-600 dark:text-slate-200">
+                Ctrl/⌘ K
+              </kbd>{" "}
+              para pesquisar e navegar mais rápido.
+            </p>
+          </form>
+        </div>
+      </section>
+    </main>
   );
 }

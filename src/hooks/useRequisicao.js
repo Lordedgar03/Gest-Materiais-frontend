@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+// src/hooks/useRequisicao.js
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import api from "../api";
 
+/* -------- UI helpers -------- */
 export const statusColors = {
   Pendente: "bg-gradient-to-r from-yellow-50 to-amber-50 text-yellow-800 border-yellow-200",
   Aprovada: "bg-gradient-to-r from-green-50 to-emerald-50 text-green-800 border-green-200",
@@ -11,7 +13,6 @@ export const statusColors = {
   Atendida: "bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-800 border-emerald-200",
   Devolvida: "bg-gradient-to-r from-teal-50 to-cyan-50 text-teal-800 border-teal-200",
 };
-
 export const statusIcons = {
   Pendente: "⏳",
   Aprovada: "✅",
@@ -23,9 +24,12 @@ export const statusIcons = {
   Devolvida: "🔄",
 };
 
+/* -------- utils -------- */
+const pickArray = (res) =>
+  Array.isArray(res?.data) ? res.data : Array.isArray(res?.data?.data) ? res.data.data : [];
+
 function parseJwtSafe(token) {
   try {
-    if (!token || typeof token !== "string") return {};
     const base64 = token.split(".")[1];
     const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
     return JSON.parse(json);
@@ -34,16 +38,13 @@ function parseJwtSafe(token) {
   }
 }
 
-function normalizeList(res) {
-  const d = res?.data;
-  if (Array.isArray(d)) return d;
-  if (d && Array.isArray(d.data)) return d.data;
-  if (d && d.success && Array.isArray(d.data)) return d.data;
-  return [];
-}
+const asNum = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
 
 export function useRequisicao() {
-  // ===== Auth/Perms =====
+  /* ===== Auth ===== */
   const decodedRef = useRef(null);
   if (!decodedRef.current && typeof window !== "undefined") {
     const t = localStorage.getItem("token");
@@ -57,36 +58,33 @@ export function useRequisicao() {
     email: decoded.email ?? null,
   };
 
-  // roles/caps
   const rolesLS = useMemo(() => JSON.parse(localStorage.getItem("roles") || "[]"), []);
   const capsLS = useMemo(() => new Set(JSON.parse(localStorage.getItem("caps") || "[]")), []);
-  const canViewUsers = rolesLS.includes("admin") || capsLS.has("utilizador:visualizar");
   const isAdmin = rolesLS.includes("admin");
+  const canViewUsers = isAdmin || capsLS.has("utilizador:visualizar");
 
   const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
-
-  // manage_category (global ou por categoria)
   const allowedCategoryIds = templates
     .filter((t) => t.template_code === "manage_category" && t.resource_id != null)
     .map((t) => Number(t.resource_id))
     .filter(Boolean);
   const hasGlobalManageCategory = templates.some(
-    (t) => t.template_code === "manage_category" && t.resource_id == null
+    (t) => t.template_code === "manage_category" && (t.resource_id == null || t.resource_id === "")
   );
-
-  // manage_sales pode vir em templates OU em decoded.permissoes
-  const hasManageSales =
-    templates.some(t => t.template_code === "manage_sales") ||
-    (Array.isArray(decoded.permissoes) &&
-      decoded.permissoes.some(p =>
-        typeof p === "string"
-          ? p === "manage_sales"
-          : p?.acao === "manage_sales" || p?.code === "manage_sales" || p?.permissao === "manage_sales"
-      ));
-
   const hasManageCategory = hasGlobalManageCategory || allowedCategoryIds.length > 0;
 
-  // ===== Estados =====
+  const hasManageSales =
+    templates.some((t) => t.template_code === "manage_sales") ||
+    (Array.isArray(decoded.permissoes) &&
+      decoded.permissoes.some((p) => {
+        const code =
+          typeof p === "string"
+            ? p
+            : p?.acao || p?.code || p?.permissao || p?.action_code || p?.actionCode;
+        return String(code || "") === "manage_sales";
+      }));
+
+  /* ===== Estado ===== */
   const [requisicoes, setRequisicoes] = useState([]);
   const [materiais, setMateriais] = useState([]);
   const [tipos, setTipos] = useState([]);
@@ -96,17 +94,17 @@ export function useRequisicao() {
   const [filterStatus, setFilterStatus] = useState("Todos");
   const [filterMaterial, setFilterMaterial] = useState("Todos");
   const [expanded, setExpanded] = useState({});
-  const [showForm, setShowForm] = useState(false);
 
+  const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  // ===== Modal =====
+  // modal
   const [uiModal, setUiModal] = useState({ open: false, kind: null, payload: null });
   const closeModal = () => setUiModal({ open: false, kind: null, payload: null });
 
-  // ===== Form (criação) =====
+  // form (criação)
   const [formNeededAt, setFormNeededAt] = useState("");
   const [formLocalEntrega, setFormLocalEntrega] = useState("");
   const [formJustificativa, setFormJustificativa] = useState("");
@@ -116,10 +114,10 @@ export function useRequisicao() {
   const [itemDescricao, setItemDescricao] = useState("");
   const [itens, setItens] = useState([]);
 
-  // ===== Helpers =====
+  /* ===== helpers ===== */
   const tipoById = (id) => tipos.find((t) => Number(t.tipo_id) === Number(id));
   const materialById = (id) => materiais.find((m) => Number(m.mat_id) === Number(id));
-  const materialNome = (id) => (materialById(id)?.mat_nome ?? `#${id}`);
+  const materialNome = (id) => materialById(id)?.mat_nome ?? `#${id}`;
   const categoriaIdDoMaterial = (mat) => {
     if (!mat) return null;
     const fkTipo = Number(mat.mat_fk_tipo ?? mat.tipo_id ?? 0);
@@ -129,18 +127,17 @@ export function useRequisicao() {
 
   const isConsumivel = (matId) => {
     const m = materialById(Number(matId));
-    const flag = (m?.mat_consumivel ?? m?.consumivel ?? "").toString().toLowerCase().trim();
+    const flag = String(m?.mat_consumivel ?? m?.consumivel ?? "").toLowerCase();
     return flag === "sim" || flag === "true" || flag === "1";
-  };
-
+    };
   const isVendavel = (matId) => {
     const m = materialById(Number(matId));
-    const flag = (m?.mat_vendavel ?? m?.vendavel ?? "").toString().toUpperCase().trim();
+    const flag = String(m?.mat_vendavel ?? m?.vendavel ?? "").toUpperCase();
     return flag === "SIM" || flag === "TRUE" || flag === "1";
   };
 
-  // --- Helpers de usuário/solicitante ---
-  const userById = (id) => usuarios.find((u) => Number(u.id ?? u.user_id) === Number(id));
+  const userById = (id) =>
+    usuarios.find((u) => Number(u.id ?? u.user_id) === Number(id));
   const solicitanteId = (req) =>
     Number(req?.req_fk_user ?? req?.user_id ?? req?.req_user_id ?? req?.req_fk_utilizador ?? 0);
   const solicitanteNome = (req) => {
@@ -154,12 +151,9 @@ export function useRequisicao() {
       null;
     if (direto) return direto;
     const id = solicitanteId(req);
-    if (!id) return null;
-    const u = userById(id);
-    return u?.nome || u?.name || u?.username || null;
+    return id ? userById(id)?.nome || userById(id)?.name || null : null;
   };
 
-  // ====== Regras / visibilidade ======
   const _reqItems = (req) => (Array.isArray(req?.itens) ? req.itens : []);
   const _hasVendavel = (req) => _reqItems(req).some((it) => isVendavel(it.rqi_fk_material));
 
@@ -175,21 +169,13 @@ export function useRequisicao() {
   const canOperateReq = (req, item) => {
     const items = _reqItems(req);
     if (!items.length) return false;
-
-    // Decisão por ITEM
     if (item) {
-      return isVendavel(item.rqi_fk_material)
-        ? !!hasManageSales
-        : _itemCategoryOK(item);
+      return isVendavel(item.rqi_fk_material) ? !!hasManageSales : _itemCategoryOK(item);
     }
-
-    // Sem item (no card): pode operar se existir pelo menos 1 item que ele realmente possa operar
-    return items.some(it => isVendavel(it.rqi_fk_material) ? !!hasManageSales : _itemCategoryOK(it));
+    return items.some((it) => (isVendavel(it.rqi_fk_material) ? !!hasManageSales : _itemCategoryOK(it)));
   };
-
   const canDecideReq = (req, item) => canOperateReq(req, item);
 
-  // Aprovador (opcional)
   const aprovadorPorReq = useMemo(() => {
     const map = new Map();
     for (const d of decisoes) {
@@ -205,88 +191,70 @@ export function useRequisicao() {
     return aprovador != null && Number(aprovador) === Number(currentUser.id);
   };
 
-  // ===== Fetch =====
-  const refetchRequisicoes = async () => {
-    const rr = await api.get("/requisicoes", { params: { includeItems: true, includeDecisions: true } });
-    
-    const list = normalizeList(rr).map((r) => {
-      const rr2 = r && r.toJSON ? r.toJSON() : (r?.dataValues ? r.dataValues : r);
-      const items = Array.isArray(rr2.itens)
-        ? rr2.itens.map((it) => (it?.toJSON ? it.toJSON() : (it?.dataValues ?? it)))
-        : [];
-      const decs = Array.isArray(rr2.decisoes)
-        ? rr2.decisoes.map((d) => (d?.toJSON ? d.toJSON() : (d?.dataValues ?? d)))
-        : [];
-      return { ...rr2, itens: items, decisoes: decs };
-    });
-    setRequisicoes(list);
-    setDecisoes(list.flatMap((r) => r.decisoes || []));
-    return list;
+  /* ===== Fetch ===== */
+  const normalizeReq = (r) => {
+    const rr = r?.toJSON ? r.toJSON() : r?.dataValues ? r.dataValues : r || {};
+    const items = Array.isArray(rr.itens)
+      ? rr.itens.map((it) => (it?.toJSON ? it.toJSON() : it?.dataValues ?? it))
+      : [];
+    const decs = Array.isArray(rr.decisoes)
+      ? rr.decisoes.map((d) => (d?.toJSON ? d.toJSON() : d?.dataValues ?? d))
+      : [];
+    return { ...rr, itens: items, decisoes: decs };
   };
 
+  const refetchRequisicoes = useCallback(async () => {
+    const rr = await api.get("/requisicoes", {
+      params: { includeItems: true, includeDecisions: true },
+    });
+    const list = pickArray(rr).map(normalizeReq);
+    setRequisicoes(list);
+    setDecisoes(list.flatMap((x) => x.decisoes || []));
+    return list;
+  }, []);
+
   useEffect(() => {
-    let mounted = true;
-    const fetchAll = async () => {
+    let alive = true;
+    (async () => {
       if (currentUser.id == null) return;
       setLoading(true);
       setError(null);
       try {
-        const reqP = api.get("/requisicoes", { params: { includeItems: true, includeDecisions: true } });
-        const matP = api.get("/materiais");
-        const tipoP = api.get("/tipos");
-        const userP = canViewUsers ? api.get("/users") : null;
-        const [reqRes, matRes, tipoRes, usersRes] = await Promise.all([reqP, matP, tipoP, userP]);
+        const [reqRes, matRes, tipoRes, usrRes] = await Promise.all([
+          api.get("/requisicoes", { params: { includeItems: true, includeDecisions: true } }),
+          api.get("/materiais"),
+          api.get("/tipos"),
+          canViewUsers ? api.get("/users") : Promise.resolve({ data: [] }),
+        ]);
+        const reqs = pickArray(reqRes).map(normalizeReq);
+        const mats = pickArray(matRes);
+        const tps = pickArray(tipoRes);
+        const usrs = pickArray(usrRes);
 
-        const rawReqs = normalizeList(reqRes);
-        const reqs = rawReqs.map((r) => {
-          const rr = r && r.toJSON ? r.toJSON() : (r?.dataValues ? r.dataValues : r);
-          const items = Array.isArray(rr.itens)
-            ? rr.itens.map((it) => (it?.toJSON ? it.toJSON() : (it?.dataValues ?? it)))
-            : [];
-          const decs = Array.isArray(rr.decisoes)
-            ? rr.decisoes.map((d) => (d?.toJSON ? d.toJSON() : (d?.dataValues ?? d)))
-            : [];
-          return { ...rr, itens: items, decisoes: decs };
-        });
-        const mats = Array.isArray(matRes?.data) ? matRes.data : (matRes?.data?.data || []);
-        const tps = Array.isArray(tipoRes?.data) ? tipoRes.data : (tipoRes?.data?.data || []);
-        const usersData = usersRes
-          ? (Array.isArray(usersRes?.data) ? usersRes.data : (usersRes?.data?.data || []))
-          : [];
-
-        if (!mounted) return;
+        if (!alive) return;
         setRequisicoes(reqs);
         setMateriais(mats);
         setTipos(tps);
+        setUsuarios(canViewUsers ? usrs : []);
         setDecisoes(reqs.flatMap((r) => r.decisoes || []));
-        setUsuarios(canViewUsers ? usersData : []);
-      } catch (err) {
-        if (err?.response?.status === 403 || err?.response?.status === 401) {
-          if (mounted) setUsuarios([]);
-        } else {
-          console.error("fetchAll error:", err);
-          if (mounted) setError(err?.response?.data?.message || err.message || "Erro ao carregar dados");
-        }
+      } catch (e) {
+        console.error("fetchAll error:", e);
+        if (alive) setError(e?.response?.data?.message || e.message || "Erro ao carregar dados.");
       } finally {
-        if (mounted) setLoading(false);
+        if (alive) setLoading(false);
       }
+    })();
+    return () => {
+      alive = false;
     };
-    fetchAll();
-    return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== Form =====
+  /* ===== Criação ===== */
   const addItem = () => {
-    const q = Number(itemQuantidade);
-    if (!itemMaterial) {
-      setError("Selecione um material.");
-      return;
-    }
-    if (!Number.isFinite(q) || q <= 0) {
-      setError("Informe uma quantidade válida (>0).");
-      return;
-    }
+    const q = asNum(itemQuantidade, -1);
+    if (!itemMaterial) return setError("Selecione um material.");
+    if (!Number.isFinite(q) || q <= 0) return setError("Informe uma quantidade válida (>0).");
     setItens((l) => [
       ...l,
       {
@@ -303,11 +271,8 @@ export function useRequisicao() {
   const removeItem = (idx) => setItens((l) => l.filter((_, i) => i !== idx));
 
   const submitRequisicao = async (e) => {
-    e.preventDefault();
-    if (!itens.length) {
-      setError("Adicione pelo menos um item.");
-      return;
-    }
+    e?.preventDefault?.();
+    if (!itens.length) return setError("Adicione pelo menos um item.");
     try {
       setSubmitting(true);
       setError(null);
@@ -328,17 +293,16 @@ export function useRequisicao() {
       await refetchRequisicoes();
     } catch (err) {
       console.error("create error:", err);
-      setError(err?.response?.data?.message || err.message || "Erro ao criar requisição");
+      setError(err?.response?.data?.message || err.message || "Erro ao criar requisição.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // ===== Aberturas de modal =====
+  /* ===== Modais (aberturas) ===== */
   const openDecision = (req, tipo) => {
     if (!req) return;
-    const st = String(req.req_status || "");
-    if (st !== "Pendente") {
+    if (String(req.req_status || "") !== "Pendente") {
       setError("Apenas requisições Pendentes podem receber decisão.");
       return;
     }
@@ -355,7 +319,7 @@ export function useRequisicao() {
 
   const openAtender = (req, item) => {
     const st = String(req.req_status || "");
-    const restante = Number(item?.rqi_quantidade || 0) - Number(item?.rqi_qtd_atendida || 0);
+    const restante = asNum(item?.rqi_quantidade) - asNum(item?.rqi_qtd_atendida);
     if (!["Aprovada", "Parcial", "Em Uso"].includes(st)) {
       setError("Esta requisição não pode ser atendida neste estado.");
       return;
@@ -373,7 +337,7 @@ export function useRequisicao() {
 
   const openDevolver = (req, item) => {
     const st = String(req.req_status || "");
-    const emUso = Number(item?.rqi_qtd_atendida || 0) - Number(item?.rqi_qtd_devolvida || 0);
+    const emUso = asNum(item?.rqi_qtd_atendida) - asNum(item?.rqi_qtd_devolvida);
     if (!["Em Uso", "Parcial", "Atendida"].includes(st)) {
       setError("Devolução não permitida neste estado.");
       return;
@@ -393,11 +357,9 @@ export function useRequisicao() {
     setUiModal({ open: true, kind: "devolver", payload: { reqId: req.req_id, itemId: item.rqi_id, emUso } });
   };
 
-  const openDelete = (reqId) => {
-    setUiModal({ open: true, kind: "delete", payload: { reqId } });
-  };
+  const openDelete = (reqId) => setUiModal({ open: true, kind: "delete", payload: { reqId } });
 
-  // ===== Confirmações =====
+  /* ===== Confirmações ===== */
   const confirmDecision = async ({ motivo = "" }) => {
     const { reqId, tipo } = uiModal.payload || {};
     if (!reqId || !tipo) return;
@@ -408,7 +370,7 @@ export function useRequisicao() {
       closeModal();
     } catch (err) {
       console.error("decidir error:", err);
-      setError(err?.response?.data?.message || err.message || "Erro ao registrar decisão");
+      setError(err?.response?.data?.message || err.message || "Erro ao registrar decisão.");
     } finally {
       setLoading(false);
     }
@@ -416,9 +378,9 @@ export function useRequisicao() {
 
   const confirmAtender = async ({ quantidade }) => {
     const { reqId, itemId, restante } = uiModal.payload || {};
-    const q = Number(quantidade);
+    const q = asNum(quantidade, -1);
     if (!reqId || !itemId) return;
-    if (!Number.isFinite(q) || q <= 0 || q > Number(restante)) {
+    if (!Number.isFinite(q) || q <= 0 || q > asNum(restante)) {
       setError("Quantidade inválida.");
       return;
     }
@@ -430,7 +392,7 @@ export function useRequisicao() {
       closeModal();
     } catch (err) {
       console.error("atender error:", err);
-      setError(err?.response?.data?.message || err.message || "Erro ao atender item");
+      setError(err?.response?.data?.message || err.message || "Erro ao atender item.");
     } finally {
       setLoading(false);
     }
@@ -438,9 +400,9 @@ export function useRequisicao() {
 
   const confirmDevolver = async ({ quantidade, condicao = "Boa", obs = "" }) => {
     const { reqId, itemId, emUso } = uiModal.payload || {};
-    const q = Number(quantidade);
+    const q = asNum(quantidade, -1);
     if (!reqId || !itemId) return;
-    if (!Number.isFinite(q) || q <= 0 || q > Number(emUso)) {
+    if (!Number.isFinite(q) || q <= 0 || q > asNum(emUso)) {
       setError("Quantidade inválida.");
       return;
     }
@@ -455,7 +417,7 @@ export function useRequisicao() {
       closeModal();
     } catch (err) {
       console.error("devolver error:", err);
-      setError(err?.response?.data?.message || err.message || "Erro ao devolver item");
+      setError(err?.response?.data?.message || err.message || "Erro ao devolver item.");
     } finally {
       setLoading(false);
     }
@@ -471,63 +433,46 @@ export function useRequisicao() {
       closeModal();
     } catch (err) {
       console.error("delete error:", err);
-      setError(err?.response?.data?.message || err.message || "Erro ao excluir");
+      setError(err?.response?.data?.message || err.message || "Erro ao excluir.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ===== Lista base / filtros =====
+  /* ===== Listas derivadas ===== */
   const baseList = useMemo(() => {
     return requisicoes.filter((r) => {
-      // todos veem as próprias
-      const fk = Number(r.req_fk_user ?? r.user_id ?? 0);
-      const isOwner = fk === Number(currentUser.id);
+      const ownerId = asNum(r.req_fk_user ?? r.user_id);
+      const isOwner = ownerId && ownerId === asNum(currentUser.id);
       if (isOwner) return true;
-
-      // manage_category (global ou por recurso) vê tudo
-      if (hasGlobalManageCategory || allowedCategoryIds.length) return true;
-
-      // manage_sales vê requisições com pelo menos 1 item vendável
+      if (hasManageCategory) return true;
       if (hasManageSales) return _hasVendavel(r);
-
       return false;
     });
-  }, [
-    requisicoes,
-    hasGlobalManageCategory,
-    allowedCategoryIds.length,
-    hasManageSales,
-    currentUser.id,
-  ]);
+  }, [requisicoes, hasManageCategory, hasManageSales, currentUser.id]);
 
   const filtered = useMemo(() => {
-  const byIdDesc = (a, b) => {
-    const ida = Number(a.req_id ?? 0);
-    const idb = Number(b.req_id ?? 0);
-    if (idb !== ida) return idb - ida;
+    const sortDesc = (a, b) => {
+      const idA = asNum(a.req_id);
+      const idB = asNum(b.req_id);
+      if (idA !== idB) return idB - idA;
+      const da = new Date(a.createdAt || a.req_date || 0).getTime();
+      const db = new Date(b.createdAt || b.req_date || 0).getTime();
+      return db - da;
+    };
 
-    // fallback estável quando não houver req_id
-    const da = new Date(a.createdAt || a.req_date || 0).getTime();
-    const db = new Date(b.createdAt || b.req_date || 0).getTime();
-    return db - da;
-  };
-
-  return baseList
-    .filter((r) => {
-      const okStatus = filterStatus === "Todos" || r.req_status === filterStatus;
-      const okMaterial =
-        filterMaterial === "Todos"
-          ? true
-          : Array.isArray(r.itens) &&
-            r.itens.some(
-              (it) => Number(it.rqi_fk_material) === Number(filterMaterial)
-            );
-      return okStatus && okMaterial;
-    })
-    .sort(byIdDesc); // 👈 força DESC
-}, [baseList, filterStatus, filterMaterial]);
-
+    return baseList
+      .filter((r) => {
+        const okStatus = filterStatus === "Todos" || r.req_status === filterStatus;
+        const okMaterial =
+          filterMaterial === "Todos"
+            ? true
+            : Array.isArray(r.itens) &&
+              r.itens.some((it) => asNum(it.rqi_fk_material) === asNum(filterMaterial));
+        return okStatus && okMaterial;
+      })
+      .sort(sortDesc);
+  }, [baseList, filterStatus, filterMaterial]);
 
   return {
     // identidade/perms
@@ -537,6 +482,7 @@ export function useRequisicao() {
     allowedCategoryIds,
     hasGlobalManageCategory,
     hasManageCategory,
+
     // dados
     requisicoes,
     materiais,
@@ -544,6 +490,7 @@ export function useRequisicao() {
     usuarios,
     filtered,
     decisoes,
+
     // ui
     loading,
     submitting,
@@ -553,12 +500,14 @@ export function useRequisicao() {
     setShowForm,
     expanded,
     setExpanded,
+
     // filtros
     filterStatus,
     setFilterStatus,
     filterMaterial,
     setFilterMaterial,
-    // form
+
+    // form criação
     formNeededAt,
     setFormNeededAt,
     formLocalEntrega,
@@ -577,13 +526,15 @@ export function useRequisicao() {
     addItem,
     removeItem,
     submitRequisicao,
+
     // helpers
     materialNome,
     solicitanteNome,
     solicitanteId,
     isConsumivel,
     isVendavel,
-    // modais + ações
+
+    // modal + ações
     uiModal,
     closeModal,
     openDecision,
@@ -594,9 +545,13 @@ export function useRequisicao() {
     confirmDevolver,
     openDelete,
     confirmDelete,
+
     // regras
     canOperateReq,
     canDecideReq,
     isAprovadorDaRequisicao,
+
+    // fetch util
+    refetchRequisicoes,
   };
 }

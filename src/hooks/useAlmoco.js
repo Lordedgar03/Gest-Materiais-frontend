@@ -1,16 +1,16 @@
 /* eslint-disable no-unused-vars */
+// src/hooks/useAlmoco.js
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api";
 
-/* helpers */
+/* ===== helpers ===== */
 export const money = (n) =>
-  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
+  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "STN" });
 
 export const today = () => new Date().toLocaleString("sv-SE").slice(0, 10);
 
-/* (opcional) gate simples baseado no token */
 function parseJwt(t) {
   try {
     const b = t.split(".")[1];
@@ -19,6 +19,7 @@ function parseJwt(t) {
     return {};
   }
 }
+
 function canUse(decoded) {
   const roles = decoded?.roles || [];
   if (decoded?.is_admin || roles.includes("admin")) return true;
@@ -43,6 +44,7 @@ function canUse(decoded) {
   return templates.includes("manage_sales");
 }
 
+/* ===== hook ===== */
 export default function useAlmoco() {
   const [loadingBoot, setLoadingBoot] = useState(true);
 
@@ -89,12 +91,18 @@ export default function useAlmoco() {
   /* ===== API calls ===== */
 
   const loadPreco = useCallback(async () => {
-    // GET /almocos/preco-padrao => { data, preco_padrao, preco_hoje }
-    const r = await api.get("/almocos/preco-padrao");
-    const ppad = Number(r.data?.preco_padrao || 0);
-    const phoje = Number(r.data?.preco_hoje ?? ppad);
-    setPrecoPadrao(ppad);
-    setPrecoHoje(phoje);
+    try {
+      const r = await api.get("/almocos/preco-padrao");
+      const ppad = Number(r.data?.preco_padrao || 0);
+      const phoje = Number(r.data?.preco_hoje ?? ppad);
+      setPrecoPadrao(ppad);
+      setPrecoHoje(phoje);
+    } catch (e) {
+      setToast("Falha a obter preço padrão.");
+      setTone("error");
+      setPrecoPadrao(0);
+      setPrecoHoje(0);
+    }
   }, []);
 
   const atualizarPreco = useCallback(
@@ -132,7 +140,10 @@ export default function useAlmoco() {
     setLoadingHoje(true);
     try {
       const r = await api.get("/almocos/relatorios/hoje");
-      setRelHoje(r.data || { totais: { total_arrecadado: 0, total_almocos: 0 }, alunosHoje: [] });
+      const safe = r.data || { totais: { total_arrecadado: 0, total_almocos: 0 }, alunosHoje: [] };
+      setRelHoje(safe);
+    } catch {
+      setRelHoje({ totais: { total_arrecadado: 0, total_almocos: 0 }, alunosHoje: [] });
     } finally {
       setLoadingHoje(false);
     }
@@ -144,6 +155,8 @@ export default function useAlmoco() {
     try {
       const r = await api.get("/marcacoes/marcados", { params: { data: today() } });
       setListaHoje(Array.isArray(r.data) ? r.data : r.data?.data ?? []);
+    } catch {
+      setListaHoje([]);
     } finally {
       setLoadingListaHoje(false);
     }
@@ -151,10 +164,13 @@ export default function useAlmoco() {
 
   // sumário por data
   const loadPorData = useCallback(async (date) => {
+    if (!date) return;
     setLoadingData(true);
     try {
       const r = await api.get("/almocos/relatorios/por-data", { params: { date } });
       setRelData(r.data || null);
+    } catch {
+      setRelData(null);
     } finally {
       setLoadingData(false);
     }
@@ -162,10 +178,13 @@ export default function useAlmoco() {
 
   // lista por data
   const loadListaPorData = useCallback(async (date) => {
+    if (!date) return;
     setLoadingListaData(true);
     try {
       const r = await api.get("/marcacoes/marcados", { params: { data: date } });
       setListaData(Array.isArray(r.data) ? r.data : r.data?.data ?? []);
+    } catch {
+      setListaData([]);
     } finally {
       setLoadingListaData(false);
     }
@@ -173,20 +192,26 @@ export default function useAlmoco() {
 
   // intervalo / mensal (sumários)
   const loadIntervalo = useCallback(async (inicio, fim) => {
+    if (!inicio || !fim) return;
     setLoadingIntervalo(true);
     try {
       const r = await api.get("/almocos/relatorios/intervalo", { params: { inicio, fim } });
       setRelIntervalo(r.data || null);
+    } catch {
+      setRelIntervalo(null);
     } finally {
       setLoadingIntervalo(false);
     }
   }, []);
 
   const loadMensal = useCallback(async (ano, mes) => {
+    if (!ano || !mes) return;
     setLoadingMensal(true);
     try {
       const r = await api.get("/almocos/relatorios/mensal", { params: { ano, mes } });
       setRelMensal(r.data || null);
+    } catch {
+      setRelMensal(null);
     } finally {
       setLoadingMensal(false);
     }

@@ -1,11 +1,12 @@
+// src/hooks/usePDV.js
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
 
 /* ===== helpers ===== */
-const fmt = (n) =>
-  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
+export const fmt = (n) =>
+  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "STN" });
 
 // Decodifica JWT simples
 function parseJwt(token) {
@@ -67,16 +68,15 @@ export function usePDV() {
   const allowed = hasManageSales(decodedRef.current || {});
 
   // Estado base
-  const [materials, setMaterials] = useState([]);
+  const [materials, setMaterials] = useState([]); // [{id, nome, preco, stock, min}]
   const [catalogQ, setCatalogQ] = useState("");
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState([]); // [{id, nome, preco, qtd}]
   const [customer, setCustomer] = useState("");
   const [discount, setDiscount] = useState(0);
   const [discountMode, setDiscountMode] = useState("valor"); // "valor" | "percent"
 
   // Modais
   const [payOpen, setPayOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
 
   // Pagamento (opcional; não vai ao back hoje)
   const [payMethod, setPayMethod] = useState("Dinheiro");
@@ -102,9 +102,16 @@ export function usePDV() {
       }
       try {
         const mats = await api.get("/materiais");
+        // inclui stock e mínimo
         const vendaveis = (mats?.data || [])
-          .filter((m) => m.mat_status === "ativo" && m.mat_vendavel === "SIM")
-          .map((m) => ({ id: m.mat_id, nome: m.mat_nome, preco: Number(m.mat_preco || 0) }));
+          .filter((m) => (m.mat_status ?? "ativo") === "ativo" && (m.mat_vendavel === "SIM" || m.mat_vendavel === true))
+          .map((m) => ({
+            id: m.mat_id,
+            nome: m.mat_nome,
+            preco: Number(m.mat_preco || 0),
+            stock: Number(m.mat_quantidade_estoque ?? m.stock ?? 0),
+            min: Number(m.mat_estoque_minimo ?? m.min ?? 0),
+          }));
         setMaterials(vendaveis);
 
         const cx = await api.get("/caixas/aberto").then((r) => r.data).catch(() => null);
@@ -139,13 +146,26 @@ export function usePDV() {
   const catalog = useMemo(
     () =>
       materials.filter((m) =>
-        (m.nome + String(m.preco)).toLowerCase().includes(catalogQ.toLowerCase()),
+        (m.nome + String(m.preco)).toLowerCase().includes((catalogQ || "").toLowerCase()),
       ),
     [materials, catalogQ],
   );
 
-  // Carrinho
+  /* Helpers de stock */
+  const stockOf = (id) => {
+    const m = materials.find((x) => x.id === id);
+    return m ? Number(m.stock || 0) : 0;
+  };
+
+  /* Carrinho (respeitando stock) */
   const addItem = (mat) => {
+    const available = stockOf(mat.id);
+    const inCart = cart.find((i) => i.id === mat.id)?.qtd || 0;
+    if (available <= inCart) {
+      setToast("Quantidade solicitada excede o stock disponível.");
+      setToastTone("error");
+      return;
+    }
     setCart((c) => {
       const i = c.findIndex((x) => x.id === mat.id);
       if (i >= 0) {
@@ -155,15 +175,36 @@ export function usePDV() {
       }
       return [...c, { id: mat.id, nome: mat.nome, preco: Number(mat.preco), qtd: 1 }];
     });
-    setAddOpen(false);
   };
-  const inc = (id) => setCart((c) => c.map((it) => (it.id === id ? { ...it, qtd: it.qtd + 1 } : it)));
+
+  const inc = (id) => {
+    const max = stockOf(id);
+    setCart((c) =>
+      c.map((it) => {
+        if (it.id !== id) return it;
+        if (it.qtd >= max) {
+          setToast("Limite de stock atingido para este item.");
+          setToastTone("error");
+          return it;
+        }
+        return { ...it, qtd: it.qtd + 1 };
+      }),
+    );
+  };
+
   const dec = (id) =>
     setCart((c) => c.map((it) => (it.id === id ? { ...it, qtd: Math.max(1, it.qtd - 1) } : it)));
-  const updateQty = (id, qtd) =>
-    setCart((c) =>
-      c.map((it) => (it.id === id ? { ...it, qtd: Math.max(1, Number(qtd || 1)) } : it)),
-    );
+
+  const updateQty = (id, qtd) => {
+    const max = stockOf(id);
+    const next = Math.max(1, Math.min(Number(qtd || 1), max));
+    if (Number(qtd) > max) {
+      setToast("Quantidade ajustada ao stock disponível.");
+      setToastTone("error");
+    }
+    setCart((c) => c.map((it) => (it.id === id ? { ...it, qtd: next } : it)));
+  };
+
   const removeItem = (id) => setCart((c) => c.filter((it) => it.id !== id));
   const clearSale = () => {
     setCart([]);
@@ -196,23 +237,26 @@ export function usePDV() {
 
       const descontoValor = Number(discountValue || 0);
       if (descontoValor > 0) {
-        await api.post(`/vendas/${venda.ven_id}/desconto`, { desconto: descontoValor });
+        await api.post(`/vendas/${venda.ven_id}/desconto`, { desconto: descontoValor, modo: discountMode });
       }
 
-      await api.post(`/vendas/${venda.ven_id}/pagar`);
+      await api.post(`/vendas/${venda.ven_id}/pagar`, { metodo: payMethod });
 
-      setPayOpen(false);
       clearSale();
       setToast("Venda registrada com sucesso!");
       setToastTone("ok");
+
+      // Retorna dica de recibo para o front imprimir se quiser
+      return { venda: { ven_id: venda.ven_id }, recibo: { pdf_hint: `/api/vendas/${venda.ven_id}/recibo/pdf` } };
     } catch (err) {
       console.error(err);
-      const msg =
-        err?.response?.data?.message || err?.message || "Falha ao concluir venda.";
+      const msg = err?.response?.data?.message || err?.message || "Falha ao concluir venda.";
       setToast(msg);
       setToastTone("error");
+      throw err;
     } finally {
       setLoading(false);
+      setPayOpen(false);
     }
   };
 
@@ -221,48 +265,23 @@ export function usePDV() {
     allowed,
     // boot
     loadingBoot,
-    // estado base
-    materials,
-    catalogQ,
-    setCatalogQ,
-    cart,
-    setCart,
-    customer,
-    setCustomer,
-    discount,
-    setDiscount,
-    discountMode,
-    setDiscountMode,
+    // materiais com stock
+    materials, setMaterials,
+    catalog, catalogQ, setCatalogQ,
+    // carrinho
+    cart, setCart, addItem, inc, dec, updateQty, removeItem, clearSale, stockOf,
+    // cliente e desconto
+    customer, setCustomer, discount, setDiscount, discountMode, setDiscountMode,
     // modais
-    payOpen,
-    setPayOpen,
-    addOpen,
-    setAddOpen,
-    payMethod,
-    setPayMethod,
+    payOpen, setPayOpen,
     // caixa
-    caixa,
-    caixaAberto,
+    caixa, caixaAberto,
     // derivados
-    subtotal,
-    discountValue,
-    total,
-    catalog,
-    // ações carrinho
-    addItem,
-    inc,
-    dec,
-    updateQty,
-    removeItem,
-    clearSale,
+    subtotal, discountValue, total,
     // checkout
-    loading,
-    checkout,
+    loading, checkout, payMethod, setPayMethod,
     // toast
-    toast,
-    toastTone,
-    setToast,
-    setToastTone,
+    toast, toastTone, setToast, setToastTone,
     // utils
     fmt,
   };

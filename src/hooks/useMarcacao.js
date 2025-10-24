@@ -29,21 +29,19 @@ export default function useMarcacao() {
   const [toast, setToast] = useState("");
 
   // extras (UI/UX)
-  const [selectedAluno, setSelectedAluno] = useState(null); // objeto do aluno escolhido
-  const [multiDates, setMultiDates] = useState([]); // chips de datas
-  const [falhas, setFalhas] = useState([]); // lista de erros do bulk para modal/detalhe
+  const [selectedAluno, setSelectedAluno] = useState(null);
+  const [multiDates, setMultiDates] = useState([]);
+  const [falhas, setFalhas] = useState([]);
 
   const addDate = useCallback((d) => {
     const ymd = toYMD(d);
     if (!ymd) return;
     setMultiDates((prev) => (prev.includes(ymd) ? prev : [...prev, ymd]));
   }, []);
-  const removeDate = useCallback((d) => {
-    setMultiDates((prev) => prev.filter((x) => x !== d));
-  }, []);
+  const removeDate = useCallback((d) => setMultiDates((prev) => prev.filter((x) => x !== d)), []);
   const clearDates = useCallback(() => setMultiDates([]), []);
 
-  // Lista marcações do dia, com filtro por nome OU nº processo (opcionais)
+  // Listar marcações do dia
   const load = useCallback(
     async (opts = {}) => {
       setLoading(true);
@@ -69,7 +67,7 @@ export default function useMarcacao() {
     [date]
   );
 
-  // Utilitário: constrói seletor do aluno, priorizando valores explícitos; se faltar, usa selectedAluno
+  // Seletor de aluno
   const buildAlunoSelector = useCallback(
     ({ aluno_id, alu_num_processo, aluno_nome }) => {
       const payload = {};
@@ -89,7 +87,6 @@ export default function useMarcacao() {
           return payload;
         }
       }
-      // fallback: usar selectedAluno do estado
       if (selectedAluno) {
         if (selectedAluno.alu_id) payload.aluno_id = Number(selectedAluno.alu_id);
         else if (selectedAluno.alu_num_processo) payload.alu_num_processo = Number(selectedAluno.alu_num_processo);
@@ -103,14 +100,20 @@ export default function useMarcacao() {
     [selectedAluno]
   );
 
-  // Marca 1 ou várias datas (usa /marcacoes/bulk; se 404, faz fallback 1 a 1)
+  // Marcar (bulk com fallback)
   const marcar = useCallback(
     async ({ aluno_nome, data, status, alu_num_processo, aluno_id, datas }) => {
-      setFalhas([]); // limpa erros anteriores
+      setFalhas([]);
+      let lastPayload = null; // <- mantém para o catch usar
       try {
-        // normaliza as datas: usa `datas` → senão `multiDates` → senão `data`
         const base =
-          Array.isArray(datas) && datas.length ? datas : multiDates.length ? multiDates : data ? [data] : [];
+          Array.isArray(datas) && datas.length
+            ? datas
+            : multiDates.length
+              ? multiDates
+              : data
+                ? [data]
+                : [];
 
         const norm = [...new Set(base.map(toYMD).filter(Boolean))];
         if (!norm.length) {
@@ -118,16 +121,15 @@ export default function useMarcacao() {
           return;
         }
 
-        // seletor do aluno
         const alunoSel = buildAlunoSelector({ aluno_id, alu_num_processo, aluno_nome });
         if (!(alunoSel.aluno_id || alunoSel.alu_num_processo || alunoSel.aluno_nome)) {
           setToast("Selecione um aluno.");
           return;
         }
 
-        // monta body sem campos vazios
         const body = { ...alunoSel, datas: norm };
         if (status && String(status).trim()) body.status = String(status).trim();
+        lastPayload = body;
 
         const r = await api.post("/marcacoes/bulk", body);
 
@@ -138,15 +140,13 @@ export default function useMarcacao() {
         let msg = `Criadas: ${s.criadas || 0} • Duplicadas: ${s.duplicadas || 0} • Erros: ${s.erros || 0}`;
         if (fal.length) {
           const first = fal[0];
-          msg += `\n• ${first.data}: ${first.message} ${first.code ? `(${first.code})` : first.name ? `(${first.name})` : ""}`;
+          msg += `\n• ${first.data}: ${first.message}${first.code ? ` (${first.code})` : first.name ? ` (${first.name})` : ""}`;
           console.table(fal);
         }
         setToast(msg);
 
-        // recarrega a última data para feedback imediato
         if (norm.length) await load({ data: norm[norm.length - 1] });
       } catch (e) {
-        // Se o backend devolveu JSON com resumo/falhas num 400/207, mostre
         const srv = e?.response?.data;
         if (srv && (srv.resumo || srv.falhas)) {
           const s = srv.resumo || {};
@@ -156,22 +156,20 @@ export default function useMarcacao() {
           let msg = `Criadas: ${s.criadas || 0} • Duplicadas: ${s.duplicadas || 0} • Erros: ${s.erros || 0}`;
           if (fal.length) {
             const first = fal[0];
-            msg += `\n• ${first.data}: ${first.message} ${first.code ? `(${first.code})` : first.name ? `(${first.name})` : ""}`;
+            msg += `\n• ${first.data}: ${first.message}${first.code ? ` (${first.code})` : first.name ? ` (${first.name})` : ""}`;
             console.table(fal);
           }
           setToast(msg);
 
-          if (Array.isArray(body?.datas) && body.datas.length) {
-            await load({ data: body.datas[body.datas.length - 1] });
+          if (Array.isArray(lastPayload?.datas) && lastPayload.datas.length) {
+            await load({ data: lastPayload.datas[lastPayload.datas.length - 1] });
           }
           return;
         }
 
-        // fallback simples
         const detalhada = srv?.message || srv?.error || e?.message || "Falha ao criar marcação.";
         setToast(detalhada);
 
-        // fallback se /bulk não existir
         if (e?.response?.status === 404) {
           try {
             const last = toYMD(data) || null;
@@ -191,7 +189,7 @@ export default function useMarcacao() {
     [multiDates, buildAlunoSelector, load]
   );
 
-  // Atualiza status usando ala_id (o service aceita ala_status ou alm_statusot)
+  // Atualiza status
   const atualizar = useCallback(
     async (ala_id, payload = {}) => {
       try {
@@ -209,7 +207,7 @@ export default function useMarcacao() {
     [load]
   );
 
-  // Autocomplete de alunos (aceita params.query → detecta nº processo)
+  // Autocomplete de alunos
   const searchAlunos = useCallback(async (params = {}) => {
     try {
       let finalParams = { ...params };
@@ -226,31 +224,15 @@ export default function useMarcacao() {
   }, []);
 
   return {
-    // estado principal
-    date,
-    setDate,
-    list,
-    loading,
-    toast,
-    setToast,
+    date, setDate,
+    list, loading,
+    toast, setToast,
 
-    // ações
-    load,
-    marcar,
-    atualizar,
-    searchAlunos,
+    load, marcar, atualizar, searchAlunos,
 
-    // seleção de aluno e múltiplas datas
-    selectedAluno,
-    setSelectedAluno,
-    multiDates,
-    setMultiDates,
-    addDate,
-    removeDate,
-    clearDates,
+    selectedAluno, setSelectedAluno,
+    multiDates, setMultiDates, addDate, removeDate, clearDates,
 
-    // falhas do bulk (para modal/detalhe)
-    falhas,
-    setFalhas,
+    falhas, setFalhas,
   };
 }

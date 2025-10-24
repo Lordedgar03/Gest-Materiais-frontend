@@ -17,7 +17,7 @@ const Caixa         = lazy(() => import("../pages/Caixa"));
 const PDV           = lazy(() => import("../pages/PDV"));
 const Vendas        = lazy(() => import("../pages/Vendas"));
 
-/** Novas páginas do módulo Almoço */
+/** Módulo Almoço */
 const Almoco        = lazy(() => import("../pages/Almoco"));
 const Alunos        = lazy(() => import("../pages/Alunos"));
 const Marcacoes     = lazy(() => import("../pages/Marcacoes"));
@@ -43,46 +43,45 @@ function ProtectedRoute({ children, isAuthenticated }) {
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
-/** Constrói capacidades a partir do token (igual ao Sidebar) */
+/** Templates -> capacidades (singular, alinhado) */
 const TEMPLATE_TO_CAPS = {
   baseline: [
-    { module: "dashboard", action: "visualizar" },
-    { module: "relatorios", action: "visualizar" },
-    { module: "categorias", action: "visualizar" },
-    { module: "tipos", action: "visualizar" },
-    { module: "materiais", action: "visualizar" },
-    { module: "movimentacoes", action: "visualizar" },
-    { module: "requisicoes", action: "visualizar" },
-    { module: "venda", action: "visualizar" },   // dá acesso a Vendas/PDV/Caixa/Almoço/Alunos/Marcações/Configurações (front)
-    { module: "recibo", action: "visualizar" },
+    { module: "dashboard",    action: "visualizar" },
+    { module: "categoria",    action: "visualizar" },
+    { module: "tipo",         action: "visualizar" },
+    { module: "material",     action: "visualizar" },
+    { module: "movimentacao", action: "visualizar" },
+    { module: "requisicao",   action: "visualizar" },
+    { module: "venda",        action: "visualizar" }, // Vendas/PDV/Caixa/Almoço*
+    { module: "recibo",       action: "visualizar" },
   ],
   manage_category: [
-    { module: "categorias", action: "visualizar" },
-    { module: "categorias", action: "criar" },
-    { module: "categorias", action: "editar" },
-    { module: "categorias", action: "eliminar" },
-    { module: "tipos", action: "visualizar" },
-    { module: "tipos", action: "criar" },
-    { module: "tipos", action: "editar" },
-    { module: "tipos", action: "eliminar" },
-    { module: "materiais", action: "visualizar" },
-    { module: "materiais", action: "criar" },
-    { module: "materiais", action: "editar" },
-    { module: "materiais", action: "eliminar" },
-    { module: "requisicoes", action: "visualizar" },
-    { module: "movimentacoes", action: "visualizar" },
+    { module: "categoria",    action: "visualizar" },
+    { module: "categoria",    action: "criar" },
+    { module: "categoria",    action: "editar" },
+    { module: "categoria",    action: "eliminar" },
+    { module: "tipo",         action: "visualizar" },
+    { module: "tipo",         action: "criar" },
+    { module: "tipo",         action: "editar" },
+    { module: "tipo",         action: "eliminar" },
+    { module: "material",     action: "visualizar" },
+    { module: "material",     action: "criar" },
+    { module: "material",     action: "editar" },
+    { module: "material",     action: "eliminar" },
+    { module: "requisicao",   action: "visualizar" },
+    { module: "movimentacao", action: "visualizar" },
   ],
   manage_users: [
-    { module: "utilizador", action: "visualizar" },
-    { module: "utilizador", action: "criar" },
-    { module: "utilizador", action: "editar" },
-    { module: "utilizador", action: "eliminar" },
-    { module: "log", action: "visualizar" },
+    { module: "usuario", action: "visualizar" },
+    { module: "usuario", action: "criar" },
+    { module: "usuario", action: "editar" },
+    { module: "usuario", action: "eliminar" },
+    { module: "log",     action: "visualizar" },
   ],
   manage_sales: [
-    { module: "venda", action: "visualizar" },
-    { module: "venda", action: "criar" },
-    { module: "venda", action: "eliminar" },
+    { module: "venda",  action: "visualizar" },
+    { module: "venda",  action: "criar" },
+    { module: "venda",  action: "eliminar" },
     { module: "recibo", action: "visualizar" },
   ],
 };
@@ -150,7 +149,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           path="/categorias"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "categorias", action: "visualizar" }}>
+              <RequirePermission permission={{ module: "categoria", action: "visualizar" }}>
                 <Categories />
               </RequirePermission>
             </ProtectedRoute>
@@ -160,7 +159,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           path="/tipos"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "tipos", action: "visualizar" }}>
+              <RequirePermission permission={{ module: "tipo", action: "visualizar" }}>
                 <Types />
               </RequirePermission>
             </ProtectedRoute>
@@ -170,7 +169,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           path="/materiais"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "materiais", action: "visualizar" }}>
+              <RequirePermission permission={{ module: "material", action: "visualizar" }}>
                 <Materials />
               </RequirePermission>
             </ProtectedRoute>
@@ -180,7 +179,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           path="/requisicoes"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "requisicoes", action: "visualizar" }}>
+              <RequirePermission permission={{ module: "requisicao", action: "visualizar" }}>
                 <Requisitions />
               </RequirePermission>
             </ProtectedRoute>
@@ -190,27 +189,30 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           path="/movimentos"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "movimentacoes", action: "visualizar" }}>
+              <RequirePermission permission={{ module: "movimentacao", action: "visualizar" }}>
                 <Movements />
               </RequirePermission>
             </ProtectedRoute>
           }
         />
+        {/* Relatórios (admin-only no backend; front exige permissão "relatorio:visualizar") */}
         <Route
           path="/relatorios"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "relatorios", action: "visualizar" }}>
+              <RequirePermission permission={{ module: "relatorio", action: "visualizar" }}>
                 <Reports />
               </RequirePermission>
             </ProtectedRoute>
           }
         />
+
+        {/* Utilizadores */}
         <Route
           path="/utilizadores"
           element={
             <ProtectedRoute isAuthenticated={isAuthenticated}>
-              <RequirePermission permission={{ module: "utilizador", action: "visualizar" }}>
+              <RequirePermission permission={{ module: "usuario", action: "visualizar" }}>
                 <UsersPage />
               </RequirePermission>
             </ProtectedRoute>
@@ -249,7 +251,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           }
         />
 
-        {/* Módulo Almoço (tudo sob permissão "venda:visualizar") */}
+        {/* Almoço */}
         <Route
           path="/almoco"
           element={
@@ -291,7 +293,7 @@ export default function AppRoutes({ isAuthenticated, setIsAuthenticated }) {
           }
         />
 
-        {/* Sistema */}
+        {/* Sistema (autenticado, sem gate) */}
         <Route
           path="/ajuda"
           element={

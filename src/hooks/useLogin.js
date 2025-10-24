@@ -1,50 +1,45 @@
 import { useState } from "react";
-import axios from "axios";
 import { jwtDecode } from "jwt-decode";
+import { publicApi } from "../api"; // usa o cliente público já configurado
 
-/** API pública (sem /api) */
-const publicApi = axios.create({
-  baseURL: "http://localhost:3000",
-  timeout: 10000,
-  headers: { "Content-Type": "application/json" }
-});
-
-/**
- * Templates → capacidades (module:action)
- * NOTA: dashboard/relatorios/recibo ficam fora por padrão (admin-only no client)
- */
 const TEMPLATE_TO_CAPS = {
   baseline: [
-    { module: "ajuda", action: "visualizar" },
-    { module: "requisicoes", action: "visualizar" }, // se quiser manter como no Sidebar/Routes
+    { module: "dashboard",    action: "visualizar" },
+    { module: "categoria",    action: "visualizar" },
+    { module: "tipo",         action: "visualizar" },
+    { module: "material",     action: "visualizar" },
+    { module: "movimentacao", action: "visualizar" },
+    { module: "requisicao",   action: "visualizar" },
+    { module: "venda",        action: "visualizar" }, // Vendas/PDV/Caixa/Almoço*
+    { module: "recibo",       action: "visualizar" }, // uso no front (exibir/gerar)
   ],
   manage_category: [
-    { module: "categorias", action: "visualizar" },
-    { module: "categorias", action: "criar" },
-    { module: "categorias", action: "editar" },
-    { module: "categorias", action: "eliminar" },
+    { module: "categoria",    action: "visualizar" },
+    { module: "categoria",    action: "criar" },
+    { module: "categoria",    action: "editar" },
+    { module: "categoria",    action: "eliminar" },
 
-    { module: "tipos", action: "visualizar" },
-    { module: "tipos", action: "criar" },
-    { module: "tipos", action: "editar" },
-    { module: "tipos", action: "eliminar" },
+    { module: "tipo",         action: "visualizar" },
+    { module: "tipo",         action: "criar" },
+    { module: "tipo",         action: "editar" },
+    { module: "tipo",         action: "eliminar" },
 
-    { module: "materiais", action: "visualizar" },
-    { module: "materiais", action: "criar" },
-    { module: "materiais", action: "editar" },
-    { module: "materiais", action: "eliminar" },
+    { module: "material",     action: "visualizar" },
+    { module: "material",     action: "criar" },
+    { module: "material",     action: "editar" },
+    { module: "material",     action: "eliminar" },
 
-    { module: "requisicoes", action: "visualizar" },
-    { module: "movimentacoes", action: "visualizar" },
+    { module: "movimentacao", action: "visualizar" },
+    { module: "requisicao",   action: "visualizar" },
   ],
   manage_users: [
-    { module: "utilizador", action: "visualizar" },
-    { module: "utilizador", action: "criar" },
-    { module: "utilizador", action: "editar" },
-    { module: "utilizador", action: "eliminar" },
-    { module: "log", action: "visualizar" },
+    { module: "usuario", action: "visualizar" },
+    { module: "usuario", action: "criar" },
+    { module: "usuario", action: "editar" },
+    { module: "usuario", action: "eliminar" },
+    { module: "log",     action: "visualizar" },
   ],
-  // gerir vendas (inclui PDV/Caixa/Vendas + Almoço inteiro via module "venda")
+  // gestão de vendas (inclui PDV/Caixa/Vendas e módulo Almoço via "venda")
   manage_sales: [
     { module: "venda", action: "visualizar" },
     { module: "venda", action: "criar" },
@@ -52,14 +47,36 @@ const TEMPLATE_TO_CAPS = {
   ],
 };
 
-/** Converte lista de templates -> Set de "module:action" */
+/** Converte templates -> Set("module:action") */
 function deriveCapsFromTemplates(templates = []) {
   const caps = new Set();
   templates.forEach((t) => {
     const list = TEMPLATE_TO_CAPS[t?.template_code] || [];
-    list.forEach((c) => caps.add(`${c.module}:${c.action}`));
+    list.forEach(({ module, action }) => caps.add(`${module}:${action}`));
   });
   return caps;
+}
+
+/** Extrai dados úteis do token */
+function parseToken(token) {
+  let roles = [];
+  let templates = [];
+  let nome = "Utilizador";
+  let isAdmin = false;
+
+  try {
+    const payload = jwtDecode(token) || {};
+    if (payload?.user_nome || payload?.nome || payload?.name) {
+      nome = payload.user_nome || payload.nome || payload.name;
+    }
+    roles = Array.isArray(payload?.roles) ? payload.roles : [];
+    templates = Array.isArray(payload?.templates) ? payload.templates : [];
+    isAdmin = payload?.is_admin === true || roles.includes("admin");
+  } catch {
+    // se não decodificar, deixamos fallback no response do login
+  }
+
+  return { roles, templates, nome, isAdmin };
 }
 
 export default function useLogin() {
@@ -73,6 +90,7 @@ export default function useLogin() {
     try {
       if (!email || !senha) throw new Error("Preencha email e palavra-passe.");
 
+      // Login via rota pública (sem /api)
       const res = await publicApi.post("/users/login", {
         user_email: String(email || "").trim(),
         user_senha: String(senha || "")
@@ -81,46 +99,30 @@ export default function useLogin() {
       const token = res?.data?.token;
       if (!token) throw new Error("Token não recebido.");
 
-      // extrai payload
-      let nome = "Utilizador";
-      let roles = [];
-      let templates = [];
-      let isAdmin = false;
+      // 1) Decodifica o token
+      let { roles, templates, nome, isAdmin } = parseToken(token);
 
-      try {
-        const payload = jwtDecode(token);
-        if (payload?.user_nome) nome = payload.user_nome;
-        roles = Array.isArray(payload?.roles) ? payload.roles : [];
-        templates = Array.isArray(payload?.templates) ? payload.templates : [];
-        isAdmin = payload?.is_admin === true || roles.includes("admin");
-      } catch {
-        roles = Array.isArray(res.data?.roles) ? res.data.roles : [];
-        templates = Array.isArray(res.data?.templates) ? res.data.templates : [];
-        isAdmin = roles.includes("admin");
-      }
-
-      // Se backend devolveu em paralelo, usa como fallback
+      // 2) Fallback: caso backend retorne arrays em paralelo
       if (roles.length === 0 && Array.isArray(res.data?.roles)) roles = res.data.roles;
       if (templates.length === 0 && Array.isArray(res.data?.templates)) templates = res.data.templates;
+      if (!nome && typeof res.data?.user_nome === "string") nome = res.data.user_nome;
       isAdmin = isAdmin || roles.includes("admin");
 
-      // Deriva capacidades dos templates
+      // 3) Deriva capacidades a partir dos templates
       const capsSet = deriveCapsFromTemplates(templates);
 
-      // ADMIN ganha dashboard/relatorios/recibo no client
-      if (isAdmin) {
-        ["dashboard:visualizar", "relatorios:visualizar", "recibo:visualizar"].forEach(c => capsSet.add(c));
-      }
+      // 4) Admin ganha acesso a relatórios no client (rota /relatorios)
+      if (isAdmin) capsSet.add("relatorio:visualizar");
 
-      // Persistência da sessão
+      // 5) Persiste sessão
       localStorage.setItem("token", token);
-      localStorage.setItem("user_nome", nome);
+      localStorage.setItem("user_nome", nome || "Utilizador");
       localStorage.setItem("roles", JSON.stringify(roles));
       localStorage.setItem("templates", JSON.stringify(templates));
       localStorage.setItem("caps", JSON.stringify(Array.from(capsSet)));
       localStorage.setItem("lastLoginAt", String(Date.now()));
 
-      // Notifica UI (Sidebar/Header/Routes)
+      // 6) Notifica UI (Sidebar/Header/Routes escutam "auth:changed")
       window.dispatchEvent(new Event("auth:changed"));
 
       return { ok: true, roles, templates, caps: Array.from(capsSet), nome };

@@ -1,6 +1,5 @@
-// src/hooks/useMovements.js
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import api from '../api' // ajuste o caminho se seu api.js estiver em outro lugar
+import api from '../api'
 
 export function useMovements() {
   // Data
@@ -17,7 +16,7 @@ export function useMovements() {
   const [sortDirection, setSortDirection] = useState('desc')
   const [showFilters, setShowFilters] = useState(false)
 
-  /** ========= MÉTODOS (rotas / URLs) ========= **/
+  // ========= chamadas =========
   const fetchMaterials = useCallback(async () => {
     const res = await api.get('/materiais')
     return res.data?.data ?? res.data ?? []
@@ -31,7 +30,7 @@ export function useMovements() {
   const fetchRequisitions = useCallback(async () => {
     const res = await api.get('/requisicoes')
     const all = res.data?.data ?? res.data ?? []
-    return all.filter(r => r.req_status === 'Aprovada')
+    return all.filter(r => (r.req_status || r.status) === 'Aprovada')
   }, [])
 
   const fetchAllData = useCallback(async () => {
@@ -58,9 +57,9 @@ export function useMovements() {
     fetchAllData()
   }, [fetchAllData])
 
-  /** ========= LÓGICA (filtros/ordenação/derivados) ========= **/
+  // ========= derivados =========
   const getMaterialName = useCallback((id) => {
-    const m = materials.find(x => x.mat_id === id)
+    const m = materials.find(x => Number(x.mat_id) === Number(id))
     return m ? m.mat_nome : '—'
   }, [materials])
 
@@ -120,7 +119,7 @@ export function useMovements() {
     return { entradas, saidas, balanco: entradas - saidas }
   }, [filteredMovements])
 
-  // Actions expostas para a UI
+  // ações UI
   const handleSort = useCallback((field) => {
     if (sortField === field) {
       setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'))

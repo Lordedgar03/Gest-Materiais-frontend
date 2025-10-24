@@ -1,686 +1,513 @@
 /* eslint-disable no-unused-vars */
-'use client'
+"use client";
 
-import React from 'react'
+import React from "react";
 import {
-  Users, PlusCircle, Upload, Search, Loader2, X, FileDown, Pencil, 
-  Power, PowerOff, Filter, Download, ChevronLeft, ChevronRight,
-  ChevronsLeft, ChevronsRight, Eye, EyeOff
-} from 'lucide-react'
-import { Formik, Form, Field } from 'formik'
-import useAlunos from '../hooks/useAlunos'
-import api from '../api'
+  Users, Plus, Upload, Search, Loader2, X, Download, Pencil,
+  Power, PowerOff, Filter, ChevronLeft, ChevronRight, ChevronsLeft,
+  ChevronsRight, Eye, EyeOff, SunMedium, MoonStar, SortAsc, SortDesc, Check
+} from "lucide-react";
+import { Formik, Form, Field } from "formik";
+import useAlunos from "../hooks/useAlunos";
+import api from "../api";
 
-/* ---------- helpers (JS puro) ---------- */
-function clsx(...xs) {
-  return xs.filter(Boolean).join(' ')
-}
+/* ===== helpers ===== */
+const cx = (...xs) => xs.filter(Boolean).join(" ");
+const useDebounced = (v, d = 400) => {
+  const [val, setVal] = React.useState(v);
+  React.useEffect(() => { const t = setTimeout(() => setVal(v), d); return () => clearTimeout(t); }, [v, d]);
+  return val;
+};
 
-function useDebouncedValue(value, delay = 400) {
-  const [v, setV] = React.useState(value)
+/* ===== theme (dark) ===== */
+function useTheme() {
+  const [dark, setDark] = React.useState(() => typeof window !== "undefined"
+    ? document.documentElement.classList.contains("dark") : true);
   React.useEffect(() => {
-    const t = setTimeout(() => setV(value), delay)
-    return () => clearTimeout(t)
-  }, [value, delay])
-  return v
+    const stored = localStorage.getItem("theme") || "dark";
+    const isDark = stored === "dark";
+    document.documentElement.classList.toggle("dark", isDark);
+    setDark(isDark);
+  }, []);
+  const toggle = () => {
+    const next = !dark;
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
+    setDark(next);
+  };
+  return { dark, toggle };
 }
 
-/* ---------- Modal ---------- */
+/* ===== modal minimal ===== */
 function Modal({ open, title, onClose, children, footer, size = "md" }) {
-  const sizes = {
-    sm: "max-w-md",
-    md: "max-w-2xl",
-    lg: "max-w-4xl",
-    xl: "max-w-6xl"
-  }
-
+  const sizes = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" };
   React.useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = 'unset'
-    }
-    return () => { document.body.style.overflow = 'unset' }
-  }, [open])
-
-  if (!open) return null
-
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 animate-fade-in">
-      <div 
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm" 
-        onClick={onClose} 
-        aria-hidden 
-      />
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div 
-          className={`w-full ${sizes[size]} rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-2xl animate-scale-in`}
+        <div
+          role="dialog"
+          aria-modal="true"
+          className={cx(
+            "w-full rounded-2xl bg-white dark:bg-gray-950 border border-gray-200/60 dark:border-white/10 shadow-2xl",
+            sizes[size] || sizes.md
+          )}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">{title}</h3>
-            <button 
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              onClick={onClose}
-              aria-label="Fechar modal"
-            >
-              <X size={20} />
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-white/10">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h3>
+            <button onClick={onClose} className="p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400/60 hover:bg-gray-50 dark:hover:bg-white/5" aria-label="Fechar">
+              <X size={18} />
             </button>
           </div>
-          <div className="p-6 max-h-[70vh] overflow-y-auto">{children}</div>
-          {footer && (
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl">
-              {footer}
-            </div>
-          )}
+          <div className="px-5 py-4">{children}</div>
+          {footer && <div className="px-5 py-4 border-t border-gray-100 dark:border-white/10">{footer}</div>}
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-/* ---------- CSV utils (JS puro) ---------- */
-const detectSep = (text) => (text.split('\n')[0]?.includes(';') ? ';' : ',')
-const normalizeHeader = (h) =>
-  String(h || '')
+/* ===== CSV utils rápidos ===== */
+const sep = (t) => (t.split("\n")[0]?.includes(";") ? ";" : ",");
+const norm = (h) =>
+  String(h || "")
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, '_')
-    .replace(/[^\w]/g, '_')
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^\w]/g, "_");
+const alias = {
+  alu_nome: ["alu_nome", "nome", "aluno", "name"],
+  alu_num_processo: ["alu_num_processo", "num_processo", "processo", "process_number"],
+  alu_numero: ["alu_numero", "numero", "number"],
+  alu_turma: ["alu_turma", "turma", "class", "classe"],
+  alu_ano: ["alu_ano", "ano", "year"],
+  alu_status: ["alu_status", "status", "estado", "state"],
+};
+const mapHead = (h) => {
+  const nh = norm(h);
+  for (const [k, list] of Object.entries(alias)) if (list.includes(nh)) return k;
+  return nh;
+};
+const toAluno = (o) => {
+  const a = {
+    alu_nome: o.alu_nome?.trim() || "",
+    alu_num_processo: o.alu_num_processo ? Number(o.alu_num_processo) : null,
+    alu_numero: o.alu_numero === "" ? null : o.alu_numero ?? null,
+    alu_turma: o.alu_turma?.trim() || null,
+    alu_ano: o.alu_ano ? Number(o.alu_ano) : null,
+    alu_status: (o.alu_status || "ativo").toString().toLowerCase().includes("inativ") ? "inativo" : "ativo",
+  };
+  if (!a.alu_nome || !a.alu_num_processo || !a.alu_ano) return null;
+  return a;
+};
+const chunk = (arr, n = 200) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
+const exportCSV = (rows) => {
+  const head = "alu_id;alu_nome;alu_num_processo;alu_numero;alu_turma;alu_ano;alu_status";
+  const body = rows
+    .map((r) => [
+      r.alu_id ?? r.id ?? "",
+      r.alu_nome ?? "",
+      r.alu_num_processo ?? "",
+      r.alu_numero ?? "",
+      r.alu_turma ?? "",
+      r.alu_ano ?? "",
+      r.alu_status ?? "",
+    ].join(";"))
+    .join("\n");
+  const blob = new Blob([head + "\n" + body], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `alunos-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
-const headerAliases = {
-  alu_nome: ['alu_nome', 'nome', 'aluno', 'aluno_nome', 'name', 'student_name'],
-  alu_num_processo: ['alu_num_processo', 'num_processo', 'n_processo', 'numero_processo', 'processo', 'process_number'],
-  alu_numero: ['alu_numero', 'numero', 'n_aluno', 'n', 'number', 'student_number'],
-  alu_turma: ['alu_turma', 'turma', 'classe', 'class', 'group'],
-  alu_ano: ['alu_ano', 'ano', 'ano_letivo', 'ano_lectivo', 'year', 'school_year'],
-  alu_status: ['alu_status', 'status', 'estado', 'situacao', 'situação', 'state'],
-}
-const headerMap = (rawHeader) => {
-  const h = normalizeHeader(rawHeader)
-  for (const [canonical, aliases] of Object.entries(headerAliases)) {
-    if (aliases.includes(h)) return canonical
-  }
-  return h
-}
-const toAluno = (rowObj) => {
-  const o = {
-    alu_nome: rowObj.alu_nome?.trim() || '',
-    alu_num_processo: rowObj.alu_num_processo ? Number(rowObj.alu_num_processo) : null,
-    alu_numero: rowObj.alu_numero ?? null,
-    alu_turma: rowObj.alu_turma?.trim() || null,
-    alu_ano: rowObj.alu_ano ? Number(rowObj.alu_ano) : null,
-    alu_status: (rowObj.alu_status || 'ativo').toString().toLowerCase().includes('inativ') ? 'inativo' : 'ativo',
-  }
-  if (o.alu_numero === '') o.alu_numero = null
-  if (!o.alu_nome || !o.alu_num_processo || !o.alu_ano) return null
-  return o
-}
-function chunk(arr, size = 200) {
-  const out = []
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
-  return out
-}
-
-/* ---------- export CSV ---------- */
-function exportListCSV(rows) {
-  const head = ['alu_id', 'alu_nome', 'alu_num_processo', 'alu_numero', 'alu_turma', 'alu_ano', 'alu_status']
-  const lines = [head.join(';')]
-  rows.forEach((r) =>
-    lines.push([
-      r.alu_id ?? r.id ?? '',
-      r.alu_nome ?? '',
-      r.alu_num_processo ?? '',
-      r.alu_numero ?? '',
-      r.alu_turma ?? '',
-      r.alu_ano ?? '',
-      r.alu_status ?? '',
-    ].join(';'))
-  )
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `alunos-export-${new Date().toISOString().slice(0,10)}.csv`
-  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-/* ===================================================================== */
+/* ====================================================================== */
 
 export default function Alunos() {
-  const { loading, list, filters, setFilters, load, create, update, setStatus, toast, setToast } = useAlunos()
+  const {
+    loading, list, filters, setFilters, load, create, update, setStatus,
+    toast, setToast, error, sort, setSortBy, cols, setCols, density, setDensity
+  } = useAlunos();
 
-  const [openNew, setOpenNew] = React.useState(false)
-  const [editing, setEditing] = React.useState(null)
-  const [showFilters, setShowFilters] = React.useState(false)
+  const { dark, toggle } = useTheme();
 
-  // Import
-  const [openImport, setOpenImport] = React.useState(false)
-  const [fileName, setFileName] = React.useState('')
-  const [rowsParsed, setRowsParsed] = React.useState([])
-  const [preview, setPreview] = React.useState([])
-  const [importing, setImporting] = React.useState(false)
-  const [importResult, setImportResult] = React.useState(null)
+  /* estado UI */
+  const [openNew, setOpenNew] = React.useState(false);
+  const [editing, setEditing] = React.useState(null);
+  const [openImport, setOpenImport] = React.useState(false);
+  const [showFilters, setShowFilters] = React.useState(false);
 
-  // Busca rápida
-  const [quick, setQuick] = React.useState('')
-  const debouncedQuick = useDebouncedValue(quick, 500)
-
-  // paginação
-  const [page, setPage] = React.useState(1)
-  const [pageSize, setPageSize] = React.useState(25)
-  const totalPages = Math.max(1, Math.ceil(list.length / pageSize))
-  const pageData = React.useMemo(() => {
-    const start = (page - 1) * pageSize
-    return list.slice(start, start + pageSize)
-  }, [list, page, pageSize])
-
-  React.useEffect(() => { load() }, [load])
-  React.useEffect(() => { if (page > totalPages) setPage(1) }, [totalPages, page])
-
-  // quick search aplica em nome/num_processo
+  /* busca rápida acessível */
+  const [q, setQ] = React.useState("");
+  const dq = useDebounced(q, 450);
   React.useEffect(() => {
-    if (debouncedQuick === '' && (filters?.nome || filters?.num_processo)) return
-    const next = { ...filters, nome: debouncedQuick, num_processo: '' }
-    setFilters(next)
-    setPage(1)
-    load(next)
+    const next = { ...filters, nome: dq, num_processo: "" };
+    setFilters(next); setPage(1); load(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuick])
+  }, [dq]);
 
-  /* leitura CSV */
+  /* paginação minimal */
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(25);
+  const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+  const pageData = React.useMemo(() => {
+    const i = (page - 1) * pageSize;
+    return list.slice(i, i + pageSize);
+  }, [list, page, pageSize]);
+  React.useEffect(() => { if (page > totalPages) setPage(1); }, [page, totalPages]);
+
+  /* seleção simples (para export) */
+  const [sel, setSel] = React.useState(new Set());
+  const pageIds = React.useMemo(() => pageData.map((a) => a.alu_id || a.id || `${a.alu_num_processo}-${a.alu_turma}`), [pageData]);
+  const allPage = pageIds.length > 0 && pageIds.every((id) => sel.has(id));
+  const toggleRow = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  React.useEffect(() => { load(); }, [load]);
+
+  /* Import */
+  const [fileName, setFileName] = React.useState("");
+  const [rowsParsed, setRowsParsed] = React.useState([]);
+  const [preview, setPreview] = React.useState([]);
+  const [importing, setImporting] = React.useState(false);
+  const [importResult, setImportResult] = React.useState(null);
+
   const handleFile = async (file) => {
-    setImportResult(null)
-    if (!file) return
-    setFileName(file.name)
-    
+    setImportResult(null);
+    if (!file) return;
+    setFileName(file.name);
     try {
-      const text = await file.text()
-      const sep = detectSep(text)
-      const lines = text.split(/\r?\n/).filter(l => l.trim().length)
-      if (lines.length < 2) { 
-        setToast({ message: 'Arquivo vazio ou sem dados.', type: 'error' })
-        return 
-      }
-      
-      const headers = lines[0].split(sep).map(headerMap)
-      const data = []
-      const errors = []
-      
+      const text = await file.text();
+      const s = sep(text);
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) { setToast({ type: "error", message: "CSV vazio." }); return; }
+      const headers = lines[0].split(s).map(mapHead);
+      const data = []; const ignored = [];
       for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(sep)
-        const obj = {}; headers.forEach((h, idx) => (obj[h] = cols[idx] ?? ''))
-        const aluno = toAluno(obj)
-        if (aluno) {
-          data.push(aluno)
-        } else {
-          errors.push(`Linha ${i + 1}: Dados insuficientes`)
-        }
+        const o = {}; const cols = lines[i].split(s);
+        headers.forEach((h, k) => (o[h] = cols[k] ?? ""));
+        const a = toAluno(o); if (a) data.push(a); else ignored.push(i + 1);
       }
-      
-      setRowsParsed(data)
-      setPreview(data.slice(0, 10))
-      
-      if (errors.length > 0) {
-        setToast({ 
-          message: `${errors.length} linhas ignoradas por dados incompletos`, 
-          type: 'warning' 
-        })
-      }
-    } catch (error) {
-      setToast({ message: 'Erro ao processar arquivo', type: 'error' })
-    }
-  }
-
-  const handleDrop = async (e) => {
-    e.preventDefault()
-    const file = e.dataTransfer.files?.[0]
-    if (file && file.type === 'text/csv') {
-      await handleFile(file)
-    } else {
-      setToast({ message: 'Por favor, selecione um arquivo CSV', type: 'error' })
-    }
-  }
-
-  const downloadTemplate = () => {
-    const headers = 'alu_nome;alu_num_processo;alu_numero;alu_turma;alu_ano;alu_status'
-    const sample = [
-      'João Silva;12345;12;9A;9;ativo',
-      'Maria Santos;12346;;9B;9;ativo',
-      'Pedro Costa;12347;15;9C;9;inativo'
-    ].join('\n')
-    const blob = new Blob([headers + '\n' + sample], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = 'modelo_alunos.csv'
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    setToast({ message: 'Modelo CSV baixado', type: 'success' })
-  }
+      setRowsParsed(data);
+      setPreview(data.slice(0, 8));
+      if (ignored.length) setToast({ type: "warning", message: `${ignored.length} linhas ignoradas.` });
+    } catch { setToast({ type: "error", message: "Falha ao ler CSV." }); }
+  };
 
   const startImport = async () => {
-    if (!rowsParsed.length) { 
-      setToast({ message: 'Escolha um CSV válido antes de importar.', type: 'error' })
-      return 
-    }
-    
-    setImporting(true); 
-    setImportResult(null)
-    let created = 0, updated = 0, ignored = 0, errors = 0
-    
+    if (!rowsParsed.length) { setToast({ type: "error", message: "Selecione um CSV válido." }); return; }
+    setImporting(true); setImportResult(null);
+    let created = 0, updatedCt = 0, ignored = 0, errors = 0;
     try {
-      const packs = chunk(rowsParsed, 200)
-      for (const pack of packs) {
+      for (const pack of chunk(rowsParsed, 200)) {
         try {
-          const r = await api.post('/alunos/bulk', { items: pack })
-          const rs = r?.data?.results || r?.data || []
+          const r = await api.post("/alunos/bulk", { items: pack });
+          const rs = r?.data?.results || r?.data || [];
           rs.forEach((x) => {
-            if (x?.status === 'created' || x?.created) created++
-            else if (x?.status === 'updated' || x?.updated) updated++
-            else ignored++
-          })
-        } catch (e) {
+            if (x?.status === "created" || x?.created) created++;
+            else if (x?.status === "updated" || x?.updated) updatedCt++;
+            else ignored++;
+          });
+        } catch {
           for (const it of pack) {
-            try { 
-              await api.post('/alunos', it); 
-              created++ 
-            } catch (ex) {
-              if (String(ex?.response?.status) === '409') {
-                try { 
-                  await api.put(`/alunos/by-numero-proc/${it.alu_num_processo}`, it); 
-                  updated++ 
-                } catch { 
-                  ignored++ 
-                }
-              } else { 
-                errors++ 
-              }
+            try { await api.post("/alunos", it); created++; }
+            catch (ex) {
+              if (String(ex?.response?.status) === "409") {
+                try { await api.put(`/alunos/by-numero-proc/${it.alu_num_processo}`, it); updatedCt++; }
+                catch { ignored++; }
+              } else errors++;
             }
           }
         }
       }
-      
-      setImportResult({ created, updated, ignored, errors })
-      await load()
-      setToast({ 
-        message: `Importação concluída: +${created} criados • ${updated} atualizados • ${ignored} ignorados • ${errors} erros`,
-        type: 'success'
-      })
-    } catch (error) {
-      setToast({ message: 'Erro durante a importação', type: 'error' })
-    } finally {
-      setImporting(false)
-    }
-  }
+      setImportResult({ created, updated: updatedCt, ignored, errors });
+      await load();
+      setToast({ type: "success", message: `Importado: +${created} • ${updatedCt} upd • ${ignored} ign • ${errors} err` });
+    } catch { setToast({ type: "error", message: "Erro durante importação." }); }
+    finally { setImporting(false); }
+  };
 
-  const clearFilters = () => {
-    setFilters({})
-    setQuick('')
-    load({})
-  }
+  const clearFilters = () => { setFilters({}); setQ(""); setPage(1); load({}); };
+
+  /* medidas acessíveis/limpas */
+  const rowPad = density === "compact" ? "py-2.5" : "py-3.5";
+  const cell = "px-3 " + rowPad;
 
   return (
-    <main className="min-h-screen p-4 md:p-6 space-y-6 bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
-      {/* HEADER / TOOLBAR */}
-      <header className="rounded-2xl p-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm">
+    <main className="min-h-screen p-2 space-y-6 bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+      {/* header minimal */}
+      <header className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-gray-950/60 backdrop-blur px-5 py-4 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-blue-100 dark:bg-blue-900/30 grid place-items-center text-blue-600 dark:text-blue-400">
-              <Users size={24} />
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 rounded-xl bg-indigo-600 text-white grid place-items-center">
+              <Users size={20} />
             </div>
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold">Gestão de Alunos</h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                {list.length} alunos registados • Gerencie, filtre e importe via CSV
-              </p>
+              <h1 className="text-xl md:text-2xl font-semibold">Alunos</h1>
+              <p className="text-sm text-gray-600 dark:text-gray-400">{list.length} registados</p>
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
-                aria-label="Busca rápida por nome"
-                className="pl-10 pr-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[280px] transition-all"
-                placeholder="Buscar aluno por nome..."
-                value={quick}
-                onChange={(e) => setQuick(e.target.value)}
+                id="q"
+                className="pl-9 pr-3 py-2.5 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 outline-none focus:ring-2 focus:ring-indigo-400/60 min-w-[260px]"
+                placeholder="Pesquisar por nome…"
+                aria-label="Pesquisar alunos por nome"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setOpenImport(true)} 
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                <Upload size={18} /> Importar
-              </button>
-              <button 
-                onClick={() => setOpenNew(true)} 
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/25 transition-all"
-              >
-                <PlusCircle size={18} /> Novo Aluno
-              </button>
-            </div>
+
+            <button
+              onClick={() => setOpenImport(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900"
+            >
+              <Upload size={18} /> Importar
+            </button>
+            <button
+              onClick={() => setOpenNew(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-600 text-white dark:bg-white dark:text-gray-900 hover:opacity-90"
+            >
+              <Plus size={18} /> Novo
+            </button>
+          
           </div>
         </div>
       </header>
 
-      {/* FILTROS */}
-      <section className="rounded-2xl p-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Filter size={20} />
-            Filtros e Ações
-          </h2>
-          <div className="flex gap-2">
+      {/* filtros/ações minimal */}
+      <section className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white/70 dark:bg-gray-950/50 backdrop-blur px-5 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Filter className="text-gray-500" size={18} />
+            <h1 className="text-sm font-medium">Filtros</h1>
+          </div>
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowFilters(!showFilters)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
+              onClick={() => setShowFilters((v) => !v)}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900"
             >
               {showFilters ? <EyeOff size={16} /> : <Eye size={16} />}
-              {showFilters ? 'Ocultar' : 'Mostrar'} Filtros
+              <span className="text-sm">{showFilters ? "Ocultar" : "Mostrar"}</span>
             </button>
             <button
               onClick={clearFilters}
-              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
+              className="px-3 py-2 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900"
             >
               Limpar
+            </button>
+            <button
+              onClick={() => exportCSV(list)}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900"
+            >
+              <Download size={16} /> Exportar
             </button>
           </div>
         </div>
 
         {showFilters && (
-          <Formik enableReinitialize initialValues={filters} onSubmit={(v) => { setFilters(v); setPage(1); load(v) }}>
-            {({ isSubmitting }) => (
-              <Form className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Nome</label>
-                  <Field 
-                    name="nome" 
-                    placeholder="Filtrar por nome..."
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Nº Processo</label>
-                  <Field 
-                    name="num_processo" 
-                    type="number" 
-                    placeholder="Nº processo"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Número</label>
-                  <Field 
-                    name="numero" 
-                    placeholder="Número do aluno"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Turma</label>
-                  <Field 
-                    name="turma" 
-                    placeholder="Turma"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Ano</label>
-                  <Field 
-                    name="ano" 
-                    type="number" 
-                    placeholder="Ano letivo"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">Status</label>
-                  <Field 
-                    as="select" 
-                    name="status" 
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Todos os status</option>
-                    <option value="ativo">Ativo</option>
-                    <option value="inativo">Inativo</option>
-                  </Field>
-                </div>
+          <div className="mt-4">
+            <Formik enableReinitialize initialValues={filters} onSubmit={(v) => { setFilters(v); setPage(1); load(v); }}>
+              {({ isSubmitting }) => (
+                <Form className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+                  <FieldBox name="nome" label="Nome" />
+                  <FieldBox name="num_processo" label="Nº Processo" type="number" />
+                  <FieldBox name="numero" label="Número" />
+                  <FieldBox name="turma" label="Turma" />
+                  <FieldBox name="ano" label="Ano" type="number" />
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-2">Status</label>
+                    <Field
+                      as="select"
+                      name="status"
+                      className="w-full rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    >
+                      <option value="">Todos</option>
+                      <option value="ativo">Ativo</option>
+                      <option value="inativo">Inativo</option>
+                    </Field>
+                  </div>
 
-                <div className="md:col-span-2 lg:col-span-6 flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Registos por página:</span>
-                      <select 
-                        value={pageSize} 
+                  <div className="md:col-span-2 lg:col-span-6 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100 dark:border-white/10">
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs text-gray-600 dark:text-gray-400">Por página</label>
+                      <select
+                        value={pageSize}
                         onChange={(e) => setPageSize(Number(e.target.value))}
-                        className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500"
+                        className="rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400/60 text-sm"
                       >
-                        {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                        {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
                       </select>
+                      <span className="text-xs text-gray-600 dark:text-gray-400">Total: <b>{list.length}</b></span>
                     </div>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      Total: <b>{list.length}</b> registos
-                    </span>
-                  </div>
-                  
-                  <div className="flex gap-3">
-                    <button 
-                      type="button" 
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                      onClick={() => exportListCSV(list)}
-                    >
-                      <Download size={16} /> Exportar CSV
-                    </button>
-                    <button 
-                      type="submit" 
+                    <button
+                      type="submit"
                       disabled={isSubmitting}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 disabled:opacity-60"
                     >
-                      {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                      Aplicar Filtros
+                      {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search size={16} />}
+                      Aplicar
                     </button>
                   </div>
-                </div>
-              </Form>
-            )}
-          </Formik>
+                </Form>
+              )}
+            </Formik>
+          </div>
         )}
       </section>
 
-      {/* LISTA */}
-      <section className="rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm">
+      {/* tabela minimal moderna */}
+      <section className="rounded-2xl border border-gray-300 dark:border-white/10 bg-white/70 dark:bg-gray-950/50 overflow-hidden">
         {loading ? (
-          <div className="grid place-items-center p-16">
-            <div className="text-center space-y-3">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto" />
-              <p className="text-gray-600 dark:text-gray-400">A carregar alunos...</p>
-            </div>
+          <div className="p-8 grid gap-3">
+            {[...Array(6)].map((_, i) => <div key={i} className="h-11 rounded-lg bg-gray-100 dark:bg-white/5 animate-pulse" />)}
           </div>
         ) : (
           <>
-            <div className="overflow-hidden rounded-2xl">
-              <div className="min-w-full h-[60vh] md:h-[70vh] overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                    <tr className="text-gray-700 dark:text-gray-300">
-                      <th className="px-4 py-3 text-left font-semibold w-[30%]">Aluno</th>
-                      <th className="px-4 py-3 text-left font-semibold w-[14%]">Nº Processo</th>
-                      <th className="px-4 py-3 text-left font-semibold w-[10%] hidden sm:table-cell">Número</th>
-                      <th className="px-4 py-3 text-left font-semibold w-[14%]">Turma</th>
-                      <th className="px-4 py-3 text-left font-semibold w-[10%] hidden md:table-cell">Ano</th>
-                      <th className="px-4 py-3 text-left font-semibold w-[12%]">Status</th>
-                      <th className="px-4 py-3 text-right font-semibold w-[10%]">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {pageData.length ? pageData.map((a) => {
-                      const id = a.alu_id || a.id || `${a.alu_num_processo}-${a.alu_turma}`
-                      const inativo = String(a.alu_status || '').toLowerCase() === 'inativo'
-                      return (
-                        <tr 
-                          key={id} 
-                          className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group"
-                        >
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-gray-900 dark:text-white truncate">
-                              {a.alu_nome}
+            <div className="overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="rounded-2xl border border-gray-200 shadow-sm sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur border-b  dark:border-white/10">
+                  <tr className="text-gray-700 dark:text-gray-300">
+                    <th className={cx(cell, "w-10")}>
+                      <input
+                        type="checkbox"
+                        aria-label="Selecionar página"
+                        className="h-4 w-4 accent-indigo-600"
+                        checked={allPage}
+                        onChange={(e) => setSel(e.target.checked ? new Set([...sel, ...pageIds]) : new Set([...sel].filter((id) => !pageIds.includes(id))))}
+                      />
+                    </th>
+
+                    <ThSort label="Aluno" onClick={() => setSortBy("alu_nome")} active={sort.by === "alu_nome"} dir={sort.dir} />
+                    <ThSort label="Nº Processo" onClick={() => setSortBy("alu_num_processo")} active={sort.by === "alu_num_processo"} dir={sort.dir} />
+                    <ThSort label="Número" onClick={() => setSortBy("alu_numero")} active={sort.by === "alu_numero"} dir={sort.dir} extra="hidden sm:table-cell" />
+                    <ThSort label="Turma" onClick={() => setSortBy("alu_turma")} active={sort.by === "alu_turma"} dir={sort.dir} />
+                    <ThSort label="Ano" onClick={() => setSortBy("alu_ano")} active={sort.by === "alu_ano"} dir={sort.dir} extra="hidden md:table-cell" />
+                    <th className={cx(cell, "text-left font-medium text-gray-600 dark:text-gray-400")}>Status</th>
+                    <th className={cx(cell, "text-right font-medium text-gray-600 dark:text-gray-400")}>Ações</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {pageData.length ? pageData.map((a) => {
+                    const id = a.alu_id || a.id || `${a.alu_num_processo}-${a.alu_turma}`;
+                    const inactive = String(a.alu_status || "").toLowerCase() === "inativo";
+                    const isSel = sel.has(id);
+                    return (
+                      <tr
+                        key={id}
+                        className={cx(
+                          "border-b border-gray-100 dark:border-white/10 hover:bg-gray-50/60 dark:hover:bg-white/5 transition-colors",
+                          isSel && "bg-indigo-50/50 dark:bg-indigo-400/5"
+                        )}
+                      >
+                        <td className={cell}>
+                          <input
+                            type="checkbox"
+                            aria-label="Selecionar linha"
+                            className="h-4 w-4 accent-indigo-600"
+                            checked={isSel}
+                            onChange={() => toggleRow(id)}
+                          />
+                        </td>
+
+                        <td className={cx(cell, "min-w-[220px]")}>
+                          <div className="flex items-center gap-2">
+                            <div className="h-7 w-7 rounded-full bg-gray-100 dark:bg-white/5 grid place-items-center">
+                              <Users size={14} className="text-gray-500" />
                             </div>
-                            <div className="text-xs text-gray-500 sm:hidden mt-1">
-                              Proc: <b>{a.alu_num_processo}</b> • Nº: <b>{a.alu_numero ?? '-'}</b>
+                            <div className="truncate">
+                              <div className="font-medium text-gray-900 dark:text-white truncate">{a.alu_nome}</div>
+                              <div className="text-xs text-gray-500 sm:hidden">
+                                Proc <b>{a.alu_num_processo}</b> • Nº <b>{a.alu_numero ?? "-"}</b>
+                              </div>
                             </div>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-400">
-                            {a.alu_num_processo}
-                          </td>
-                          <td className="px-4 py-3 hidden sm:table-cell text-gray-600 dark:text-gray-400">
-                            {a.alu_numero ?? '-'}
-                          </td>
-                          <td className="px-4 py-3">
-                            {a.alu_turma ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                {a.alu_turma}
-                              </span>
-                            ) : (
-                              '-'
-                            )}
-                          </td>
-                          <td className="px-4 py-3 hidden md:table-cell text-gray-600 dark:text-gray-400">
-                            {a.alu_ano}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={clsx(
-                                'inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium',
-                                inativo 
-                                  ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' 
-                                  : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                              )}
-                            >
-                              <span 
-                                className={clsx(
-                                  'h-2 w-2 rounded-full',
-                                  inativo ? 'bg-red-500' : 'bg-green-500'
-                                )} 
-                              />
-                              {inativo ? 'Inativo' : 'Ativo'}
+                          </div>
+                        </td>
+
+                        <td className={cx(cell, "font-mono text-gray-700 dark:text-gray-300")}>{a.alu_num_processo}</td>
+                        <td className={cx(cell, "text-gray-600 dark:text-gray-400 hidden sm:table-cell")}>{a.alu_numero ?? "-"}</td>
+                        <td className={cell}>
+                          {a.alu_turma ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300">
+                              <Check size={12} /> {a.alu_turma}
                             </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                                onClick={() => setEditing(a)}
-                                title="Editar aluno"
-                              >
-                                <Pencil size={14} />
-                                <span className="hidden lg:inline text-xs">Editar</span>
-                              </button>
-                              <button
-                                className={clsx(
-                                  'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-white text-xs transition-colors',
-                                  inativo 
-                                    ? 'bg-green-600 hover:bg-green-700' 
-                                    : 'bg-red-600 hover:bg-red-700'
-                                )}
-                                onClick={() => setStatus(id, inativo ? 'ativo' : 'inativo')}
-                                title={inativo ? 'Ativar aluno' : 'Desativar aluno'}
-                              >
-                                {inativo ? <Power size={14} /> : <PowerOff size={14} />}
-                                <span className="hidden lg:inline">
-                                  {inativo ? 'Ativar' : 'Desativar'}
-                                </span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    }) : (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-16 text-center">
-                          <div className="text-gray-500 dark:text-gray-400 space-y-2">
-                            <Users className="h-12 w-12 mx-auto opacity-50" />
-                            <p className="font-medium">Nenhum aluno encontrado</p>
-                            <p className="text-sm">Tente ajustar os filtros ou adicionar novos alunos</p>
+                          ) : <span className="text-gray-500">-</span>}
+                        </td>
+                        <td className={cx(cell, "hidden md:table-cell text-gray-600 dark:text-gray-400")}>{a.alu_ano}</td>
+                        <td className={cell}>
+                          <span
+                            className={cx(
+                              "inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium",
+                              inactive
+                                ? "bg-rose-50 text-rose-700 dark:bg-rose-400/10 dark:text-rose-300"
+                                : "bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300"
+                            )}
+                          >
+                            <span className={cx("h-2 w-2 rounded-full", inactive ? "bg-rose-500" : "bg-emerald-500")} />
+                            {inactive ? "Inativo" : "Ativo"}
+                          </span>
+                        </td>
+                        <td className={cx(cell, "text-right")}>
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              onClick={() => setEditing(a)}
+                              className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
+                              title="Editar"
+                              aria-label="Editar aluno"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              onClick={() => setStatus(id, inactive ? "ativo" : "inativo")}
+                              className={cx(
+                                "px-2.5 py-1.5 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-400/60",
+                                inactive ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700"
+                              )}
+                              title={inactive ? "Ativar" : "Desativar"}
+                              aria-label={inactive ? "Ativar aluno" : "Desativar aluno"}
+                            >
+                              {inactive ? <Power size={16} /> : <PowerOff size={16} />}
+                            </button>
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-16 text-center">
+                        <div className="text-gray-500 dark:text-gray-400 space-y-2">
+                          <Users className="h-10 w-10 mx-auto opacity-60" />
+                          <p className="font-medium">Nenhum aluno encontrado</p>
+                          <p className="text-xs">Ajuste os filtros ou adicione novos alunos</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            {/* Paginação */}
+            {/* paginação minimal */}
             {pageData.length > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl">
-                <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Mostrando <b>{(page - 1) * pageSize + 1}-{Math.min(page * pageSize, list.length)}</b> de <b>{list.length}</b> registos
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-gray-100 dark:border-white/10 bg-white/70 dark:bg-gray-950/50">
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  Mostrando <b>{(page - 1) * pageSize + 1}-{Math.min(page * pageSize, list.length)}</b> de <b>{list.length}</b>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    onClick={() => setPage(1)}
-                    disabled={page === 1}
-                    title="Primeira página"
-                  >
-                    <ChevronsLeft size={16} />
-                  </button>
-                  <button
-                    className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    title="Página anterior"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  
-                  <div className="flex items-center gap-1 mx-2">
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum
-                      if (totalPages <= 5) {
-                        pageNum = i + 1
-                      } else if (page <= 3) {
-                        pageNum = i + 1
-                      } else if (page >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i
-                      } else {
-                        pageNum = page - 2 + i
-                      }
-                      
-                      return (
-                        <button
-                          key={pageNum}
-                          className={clsx(
-                            'min-w-[2rem] h-8 rounded-lg text-sm font-medium transition-colors',
-                            page === pageNum
-                              ? 'bg-blue-600 text-white'
-                              : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
-                          )}
-                          onClick={() => setPage(pageNum)}
-                        >
-                          {pageNum}
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  <button
-                    className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    title="Próxima página"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                  <button
-                    className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    onClick={() => setPage(totalPages)}
-                    disabled={page === totalPages}
-                    title="Última página"
-                  >
-                    <ChevronsRight size={16} />
-                  </button>
+                  <Pager title="Primeira" disabled={page === 1} onClick={() => setPage(1)}><ChevronsLeft size={16} /></Pager>
+                  <Pager title="Anterior" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}><ChevronLeft size={16} /></Pager>
+                  <Pager title="Próxima" disabled={page === totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}><ChevronRight size={16} /></Pager>
+                  <Pager title="Última" disabled={page === totalPages} onClick={() => setPage(totalPages)}><ChevronsRight size={16} /></Pager>
                 </div>
               </div>
             )}
@@ -688,17 +515,19 @@ export default function Alunos() {
         )}
       </section>
 
-      {/* MODAL NOVO ALUNO */}
-      <Modal open={openNew} onClose={() => setOpenNew(false)} title="Adicionar Novo Aluno">
+      {/* Novo */}
+      <Modal
+        open={openNew}
+        onClose={() => setOpenNew(false)}
+        title="Novo aluno"
+        footer={(
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            Campos marcados com * são obrigatórios.
+          </div>
+        )}
+      >
         <Formik
-          initialValues={{ 
-            alu_nome: '', 
-            alu_num_processo: '', 
-            alu_numero: '', 
-            alu_turma: '', 
-            alu_ano: new Date().getFullYear(), 
-            alu_status: 'ativo' 
-          }}
+          initialValues={{ alu_nome: "", alu_num_processo: "", alu_numero: "", alu_turma: "", alu_ano: new Date().getFullYear(), alu_status: "ativo" }}
           onSubmit={async (v, { resetForm, setSubmitting }) => {
             try {
               await create({
@@ -707,112 +536,40 @@ export default function Alunos() {
                 alu_numero: v.alu_numero ? Number(v.alu_numero) : null,
                 alu_turma: v.alu_turma.trim() || null,
                 alu_ano: Number(v.alu_ano),
-                alu_status: v.alu_status
-              })
-              resetForm()
-              setOpenNew(false)
-            } catch (error) {
-              // Error handling is done in the hook
-            } finally {
-              setSubmitting(false)
-            }
+                alu_status: v.alu_status,
+              });
+              resetForm(); setOpenNew(false);
+            } finally { setSubmitting(false); }
           }}
         >
           {({ isSubmitting, values }) => (
-            <Form className="space-y-4">
+            <Form className="space-y-3">
+              <FieldBox name="alu_nome" label="Nome completo *" required />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <FieldBox name="alu_num_processo" label="Nº Processo *" type="number" required />
+                <FieldBox name="alu_numero" label="Número" type="number" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <FieldBox name="alu_turma" label="Turma" />
+                <FieldBox name="alu_ano" label="Ano letivo *" type="number" required />
+              </div>
               <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                  Nome Completo *
-                </label>
-                <Field 
-                  name="alu_nome" 
-                  placeholder="Ex: João Silva Santos"
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required 
-                />
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                    Nº Processo *
-                  </label>
-                  <Field 
-                    name="alu_num_processo" 
-                    type="number" 
-                    placeholder="Ex: 12345"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required 
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                    Número (opcional)
-                  </label>
-                  <Field 
-                    name="alu_numero" 
-                    type="number"
-                    placeholder="Ex: 12"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                    Turma (opcional)
-                  </label>
-                  <Field 
-                    name="alu_turma" 
-                    placeholder="Ex: 9A"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                    Ano Letivo *
-                  </label>
-                  <Field 
-                    name="alu_ano" 
-                    type="number"
-                    placeholder="Ex: 2024"
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required 
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                  Status
-                </label>
-                <Field as="select" name="alu_status" 
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-2">Status</label>
+                <Field as="select" name="alu_status" className="w-full rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-400/60">
                   <option value="ativo">Ativo</option>
                   <option value="inativo">Inativo</option>
                 </Field>
               </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setOpenNew(false)}
-                  className="px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                >
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setOpenNew(false)} className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900">
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={isSubmitting || !values.alu_nome || !values.alu_num_processo || !values.alu_ano}
-                  className="px-6 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-4 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 disabled:opacity-60"
                 >
-                  {isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    'Adicionar Aluno'
-                  )}
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Adicionar"}
                 </button>
               </div>
             </Form>
@@ -820,18 +577,18 @@ export default function Alunos() {
         </Formik>
       </Modal>
 
-      {/* MODAL EDITAR ALUNO */}
-      <Modal open={!!editing} onClose={() => setEditing(null)} title="Editar Aluno">
+      {/* Editar */}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Editar aluno">
         {editing && (
           <Formik
             enableReinitialize
             initialValues={{
-              alu_nome: editing.alu_nome || '',
-              alu_num_processo: editing.alu_num_processo || '',
-              alu_numero: editing.alu_numero || '',
-              alu_turma: editing.alu_turma || '',
-              alu_ano: editing.alu_ano || '',
-              alu_status: editing.alu_status || 'ativo',
+              alu_nome: editing.alu_nome || "",
+              alu_num_processo: editing.alu_num_processo || "",
+              alu_numero: editing.alu_numero || "",
+              alu_turma: editing.alu_turma || "",
+              alu_ano: editing.alu_ano || "",
+              alu_status: editing.alu_status || "ativo",
             }}
             onSubmit={async (v, { setSubmitting }) => {
               try {
@@ -842,105 +599,40 @@ export default function Alunos() {
                   alu_turma: v.alu_turma.trim() || null,
                   alu_ano: Number(v.alu_ano),
                   alu_status: v.alu_status,
-                })
-                setEditing(null)
-              } catch (error) {
-                // Error handling is done in the hook
-              } finally {
-                setSubmitting(false)
-              }
+                });
+                setEditing(null);
+              } finally { setSubmitting(false); }
             }}
           >
             {({ isSubmitting, values }) => (
-              <Form className="space-y-4">
+              <Form className="space-y-3">
+                <FieldBox name="alu_nome" label="Nome completo *" required />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <FieldBox name="alu_num_processo" label="Nº Processo *" type="number" required />
+                  <FieldBox name="alu_numero" label="Número" type="number" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <FieldBox name="alu_turma" label="Turma" />
+                  <FieldBox name="alu_ano" label="Ano letivo *" type="number" required />
+                </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                    Nome Completo *
-                  </label>
-                  <Field 
-                    name="alu_nome" 
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required 
-                  />
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                      Nº Processo *
-                    </label>
-                    <Field 
-                      name="alu_num_processo" 
-                      type="number" 
-                      className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                      Número (opcional)
-                    </label>
-                    <Field 
-                      name="alu_numero" 
-                      type="number"
-                      className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                      Turma (opcional)
-                    </label>
-                    <Field 
-                      name="alu_turma" 
-                      className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                      Ano Letivo *
-                    </label>
-                    <Field 
-                      name="alu_ano" 
-                      type="number"
-                      className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required 
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                    Status
-                  </label>
-                  <Field as="select" name="alu_status" 
-                    className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-2">Status</label>
+                  <Field as="select" name="alu_status" className="w-full rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-400/60">
                     <option value="ativo">Ativo</option>
                     <option value="inativo">Inativo</option>
                   </Field>
                 </div>
 
-                <div className="flex justify-end gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setEditing(null)}
-                    className="px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                  >
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setEditing(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900">
                     Cancelar
                   </button>
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     disabled={isSubmitting || !values.alu_nome || !values.alu_num_processo || !values.alu_ano}
-                    className="px-6 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 disabled:opacity-60"
                   >
-                    {isSubmitting ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      'Guardar Alterações'
-                    )}
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar"}
                   </button>
                 </div>
               </Form>
@@ -949,122 +641,58 @@ export default function Alunos() {
         )}
       </Modal>
 
-      {/* MODAL IMPORTAR CSV */}
-      <Modal open={openImport} onClose={() => setOpenImport(false)} title="Importar Alunos via CSV" size="lg">
-        <div className="space-y-6">
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            <p>
-              Importe uma lista de alunos através de um ficheiro CSV. O sistema deteta automaticamente 
-              o formato e mapeia os cabeçalhos.
-            </p>
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
-              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                Formato Suportado:
-              </h4>
-              <code className="text-xs bg-white dark:bg-gray-800 px-2 py-1 rounded border">
-                alu_nome;alu_num_processo;alu_numero;alu_turma;alu_ano;alu_status
-              </code>
-              <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
-                Também aceita: <i>nome, num_processo, numero, turma, ano, status</i> e equivalentes em inglês
-              </p>
-            </div>
-          </div>
-
+      {/* Import CSV */}
+      <Modal open={openImport} onClose={() => setOpenImport(false)} title="Importar CSV" size="lg"
+        footer={<div className="text-xs text-gray-500 dark:text-gray-400">Cabeçalhos aceites: alu_nome; alu_num_processo; alu_numero; alu_turma; alu_ano; alu_status</div>}
+      >
+        <div className="space-y-4">
           <div
-            onDragOver={(e) => {
-              e.preventDefault()
-              e.currentTarget.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50', 'dark:bg-blue-900/20')
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files?.[0];
+              if (f && (f.type === "text/csv" || f.name.endsWith(".csv"))) handleFile(f);
+              else setToast({ type: "error", message: "Selecione um CSV." });
             }}
-            onDragLeave={(e) => {
-              e.preventDefault()
-              e.currentTarget.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50', 'dark:bg-blue-900/20')
-            }}
-            onDrop={handleDrop}
-            className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center transition-all hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/10"
+            className="rounded-xl border border-dashed border-gray-300 dark:border-white/10 px-5 py-7 text-center hover:border-gray-400 dark:hover:border-white/20"
           >
-            <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-              Arraste o ficheiro CSV para aqui
-            </p>
-            <p className="text-gray-500 dark:text-gray-400 mb-4">ou</p>
-            <div className="flex items-center justify-center gap-3 flex-wrap">
-              <label className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-800 cursor-pointer transition-colors">
-                <Upload size={18} /> Procurar CSV
-                <input 
-                  type="file" 
-                  accept=".csv,text/csv" 
-                  className="hidden" 
-                  onChange={(e) => handleFile(e.target.files?.[0])} 
-                />
-              </label>
-              <button 
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-white dark:hover:bg-gray-800 transition-colors"
-                onClick={downloadTemplate}
-              >
-                <FileDown size={18} /> Descarregar Modelo
-              </button>
-            </div>
-            {fileName && (
-              <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                <p className="text-sm text-green-800 dark:text-green-300">
-                  <b>Ficheiro selecionado:</b> {fileName}
-                </p>
-                <p className="text-xs text-green-600 dark:text-green-400 mt-1">
-                  {rowsParsed.length} registos detetados
-                </p>
-              </div>
-            )}
+            <Upload className="mx-auto text-gray-400" size={20} />
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">Arraste o CSV aqui ou</p>
+            <label className="inline-flex mt-3 items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900 cursor-pointer">
+              <Upload size={16} /> Procurar CSV
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+              />
+            </label>
+            {fileName && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">Ficheiro: {fileName} • {rowsParsed.length} linhas</p>}
           </div>
 
           {preview.length > 0 && (
-            <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-              <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-                <h4 className="font-medium text-gray-900 dark:text-white">
-                  Pré-visualização ({preview.length} de {rowsParsed.length} registos)
-                </h4>
+            <div className="rounded-xl border border-gray-100 dark:border-white/10 overflow-hidden">
+              <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 border-b border-gray-100 dark:border-white/10">
+                Pré-visualização ({preview.length} de {rowsParsed.length})
               </div>
               <div className="max-h-64 overflow-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-white dark:bg-gray-900 sticky top-0">
-                    <tr className="border-b border-gray-200 dark:border-gray-700">
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Nome
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Processo
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Nº
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Turma
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Ano
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Status
-                      </th>
+                  <thead className="bg-gray-50 dark:bg-white/5">
+                    <tr>
+                      {["Nome", "Processo", "Nº", "Turma", "Ano", "Status"].map((h) => (
+                        <th key={h} className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-300">{h}</th>
+                      ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  <tbody>
                     {preview.map((r, i) => (
-                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                        <td className="px-3 py-2 text-sm">{r.alu_nome}</td>
-                        <td className="px-3 py-2 text-sm font-mono">{r.alu_num_processo}</td>
-                        <td className="px-3 py-2 text-sm">{r.alu_numero ?? '-'}</td>
-                        <td className="px-3 py-2 text-sm">{r.alu_turma ?? '-'}</td>
-                        <td className="px-3 py-2 text-sm">{r.alu_ano}</td>
-                        <td className="px-3 py-2 text-sm">
-                          <span className={clsx(
-                            'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium',
-                            r.alu_status === 'inativo'
-                              ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                              : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                          )}>
-                            {r.alu_status}
-                          </span>
-                        </td>
+                      <tr key={i} className="border-t border-gray-100 dark:border-white/10">
+                        <td className="px-3 py-2">{r.alu_nome}</td>
+                        <td className="px-3 py-2 font-mono">{r.alu_num_processo}</td>
+                        <td className="px-3 py-2">{r.alu_numero ?? "-"}</td>
+                        <td className="px-3 py-2">{r.alu_turma ?? "-"}</td>
+                        <td className="px-3 py-2">{r.alu_ano}</td>
+                        <td className="px-3 py-2">{r.alu_status}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1073,105 +701,96 @@ export default function Alunos() {
             </div>
           )}
 
-          {importResult && (
-            <div className={clsx(
-              'rounded-xl p-4 border',
-              importResult.errors > 0 
-                ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-                : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-            )}>
-              <h4 className="font-medium mb-2">Resultado da Importação:</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">{importResult.created}</div>
-                  <div className="text-gray-600 dark:text-gray-400">Criados</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{importResult.updated}</div>
-                  <div className="text-gray-600 dark:text-gray-400">Atualizados</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">{importResult.ignored}</div>
-                  <div className="text-gray-600 dark:text-gray-400">Ignorados</div>
-                </div>
-                <div className="text-center">
-                  <div className={clsx(
-                    'text-2xl font-bold',
-                    importResult.errors > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'
-                  )}>
-                    {importResult.errors}
-                  </div>
-                  <div className="text-gray-600 dark:text-gray-400">Erros</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-              {rowsParsed.length > 0 && (
-                <span>
-                  Pronto para importar <b>{rowsParsed.length}</b> registos
-                </span>
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              {importResult && (
+                <>Resultado: <b>+{importResult.created}</b> criados • <b>{importResult.updated}</b> atualizados • <b>{importResult.ignored}</b> ignorados • <b>{importResult.errors}</b> erros</>
               )}
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setOpenImport(false)
-                  setFileName('')
-                  setRowsParsed([])
-                  setPreview([])
-                  setImportResult(null)
-                }}
-                className="px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancelar
+            <div className="flex gap-2">
+              <button onClick={() => setOpenImport(false)} className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900">
+                Fechar
               </button>
               <button
                 disabled={!rowsParsed.length || importing}
                 onClick={startImport}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 disabled:opacity-60"
               >
-                {importing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload size={16} />
-                )}
-                {importing ? 'A Importar...' : 'Iniciar Importação'}
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Importar"}
               </button>
             </div>
           </div>
         </div>
       </Modal>
 
-      {/* Toast Notifications */}
+      {/* toast minimal */}
       {toast && (
         <div
           role="status"
-          className={clsx(
-            'fixed bottom-6 right-6 px-6 py-4 rounded-xl shadow-lg border transform animate-slide-in-right',
-            toast.type === 'error' 
-              ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'
-              : toast.type === 'warning'
-              ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 text-yellow-800 dark:text-yellow-300'
-              : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
+          className={cx(
+            "fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl border shadow-lg backdrop-blur",
+            toast.type === "error"
+              ? "bg-rose-50/90 dark:bg-rose-900/20 border-rose-200/60 dark:border-rose-700/40 text-rose-900 dark:text-rose-200"
+              : toast.type === "warning"
+              ? "bg-amber-50/90 dark:bg-amber-900/20 border-amber-200/60 dark:border-amber-700/40 text-amber-900 dark:text-amber-200"
+              : "bg-emerald-50/90 dark:bg-emerald-900/20 border-emerald-200/60 dark:border-emerald-700/40 text-emerald-900 dark:text-emerald-200"
           )}
         >
           <div className="flex items-center gap-3">
-            <div className="flex-1">
-              {toast.message}
-            </div>
-            <button 
-              onClick={() => setToast(null)}
-              className="flex-shrink-0 p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-              aria-label="Fechar notificação"
-            >
+            <div className="text-sm">{toast.message}</div>
+            <button onClick={() => setToast(null)} className="ml-2 rounded-lg p-1 hover:bg-black/5 dark:hover:bg-white/10" aria-label="Fechar">
               <X size={16} />
             </button>
           </div>
         </div>
       )}
     </main>
-  )
+  );
+}
+
+/* ===== subcomponentes ===== */
+function FieldBox({ name, label, type = "text", required }) {
+  return (
+    <div>
+      <label htmlFor={name} className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-2">
+        {label} {required && <span className="text-rose-600">*</span>}
+      </label>
+      <Field
+        id={name}
+        name={name}
+        type={type}
+        className="w-full rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-400/60"
+      />
+    </div>
+  );
+}
+
+function ThSort({ label, active, dir, onClick, extra = "" }) {
+  return (
+    <th className={cx("px-3 py-3.5 text-left font-medium text-gray-600 dark:text-gray-400 select-none", extra)}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="inline-flex items-center gap-1 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-400/60 rounded"
+        aria-pressed={active}
+        aria-label={`Ordenar por ${label}`}
+      >
+        {label}
+        {active ? (dir === "asc" ? <SortAsc size={14} /> : <SortDesc size={14} />) : null}
+      </button>
+    </th>
+  );
+}
+
+function Pager({ children, onClick, disabled, title }) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="p-2 rounded-lg border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-gray-900 disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
 }

@@ -1,20 +1,17 @@
-// src/App.jsx
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-
 import Sidebar from "./components/Sidebar";
-import Header from "./components/header";
-
+import Header from "./components/Header";
 import AppRoutes, { isTokenValid } from "./routes/routes";
 
-export default function App() {
-  const location = useLocation();
-  const isLoginPage = location.pathname === "/login";
+export default function AppLayout() {
+  const { pathname } = useLocation();
+  const isLoginPage = pathname === "/login";
 
-  // estado de auth baseado no token
   const [isAuthenticated, setIsAuthenticated] = useState(() => isTokenValid());
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // escuta mudanças do token (outra aba)
+  // sync token across tabs
   useEffect(() => {
     const onStorage = (e) => {
       if (e.key === "token") setIsAuthenticated(isTokenValid());
@@ -23,27 +20,20 @@ export default function App() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // checagem periódica leve (60s) – exceto na página de login
+  // periodic token check (except login)
   useEffect(() => {
     if (isLoginPage) return;
     const id = setInterval(() => setIsAuthenticated(isTokenValid()), 60000);
     return () => clearInterval(id);
   }, [isLoginPage]);
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-950">
       {!isLoginPage && <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />}
-
       <div className="flex-1 overflow-auto">
         {!isLoginPage && <Header />}
-
         <div className="p-4">
-          <AppRoutes
-            isAuthenticated={isAuthenticated}
-            setIsAuthenticated={setIsAuthenticated}
-          />
+          <AppRoutes isAuthenticated={isAuthenticated} setIsAuthenticated={setIsAuthenticated} />
         </div>
       </div>
     </div>
