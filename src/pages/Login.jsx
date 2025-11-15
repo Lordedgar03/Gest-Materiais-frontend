@@ -1,3 +1,4 @@
+// src/pages/Login.jsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -6,38 +7,60 @@ import { useNavigate } from "react-router-dom";
 import useLogin from "../hooks/useLogin";
 
 /* ==================== Rotas por capacidade ==================== */
+/**
+ * IMPORTANTES:
+ * - Os nomes de "module" aqui têm que bater com o que vem nas caps do useLogin:
+ *   "dashboard", "categoria", "tipo", "material", "movimentacao",
+ *   "requisicao", "venda", "recibo", "usuario", "relatorio"
+ * - O path é do front, não precisa ser igual ao module.
+ */
+
 const COMMON_ORDER = [
   "venda:visualizar",
-  "materiais:visualizar",
-  "requisicoes:visualizar",
-  "movimentacoes:visualizar",
-  "categorias:visualizar",
-  "tipos:visualizar",
-  "utilizador:visualizar",
-  "ajuda:visualizar",
+  "material:visualizar",
+  "requisicao:visualizar",
+  "movimentacao:visualizar",
+  "categoria:visualizar",
+  "tipo:visualizar",
+  "usuario:visualizar",
+  "ajuda:visualizar", // só existe no front (fallback)
 ];
-const ADMIN_FIRST = ["dashboard:visualizar", "relatorios:visualizar", "recibo:visualizar"];
+
+const ADMIN_FIRST = [
+  "dashboard:visualizar",
+  "relatorio:visualizar",
+  "recibo:visualizar",
+];
 
 const CAP_TO_PATH = {
   "dashboard:visualizar": "/dashboard",
-  "relatorios:visualizar": "/relatorios",
-  "recibo:visualizar": "/relatorios", // ajuste para /recibos caso exista
+  "relatorio:visualizar": "/relatorios",
+  "recibo:visualizar": "/relatorios", // troca p/ "/recibos" se criares essa página
+
   "venda:visualizar": "/vendas",
-  "materiais:visualizar": "/materiais",
-  "requisicoes:visualizar": "/requisicoes",
-  "movimentacoes:visualizar": "/movimentos",
-  "categorias:visualizar": "/categorias",
-  "tipos:visualizar": "/tipos",
-  "utilizador:visualizar": "/utilizadores",
+  "material:visualizar": "/materiais",
+  "requisicao:visualizar": "/requisicoes",
+  "movimentacao:visualizar": "/movimentos",
+  "categoria:visualizar": "/categorias",
+  "tipo:visualizar": "/tipos",
+  "usuario:visualizar": "/utilizadores",
+
+  // cap só de front (não vem do backend, mas serve de fallback)
   "ajuda:visualizar": "/ajuda",
 };
 
 function getFirstAllowedPath(caps = [], roles = []) {
   const set = new Set(caps);
-  const order = roles.includes("admin") ? [...ADMIN_FIRST, ...COMMON_ORDER] : COMMON_ORDER;
+  const order = roles.includes("admin")
+    ? [...ADMIN_FIRST, ...COMMON_ORDER]
+    : COMMON_ORDER;
+
   for (const cap of order) {
-    if (set.has(cap)) return CAP_TO_PATH[cap];
+    if (set.has(cap)) {
+      return CAP_TO_PATH[cap] || "/ajuda";
+    }
   }
+
   return "/ajuda"; // fallback seguro
 }
 
@@ -72,8 +95,11 @@ export default function Login({ setIsAuthenticated }) {
     if (!ok) return;
 
     setIsAuthenticated?.(true);
+
+    // lê roles e caps que o hook guardou no localStorage
     const roles = JSON.parse(localStorage.getItem("roles") || "[]");
     const capsArr = caps || JSON.parse(localStorage.getItem("caps") || "[]");
+
     const destination = getFirstAllowedPath(capsArr, roles);
     navigate(destination, { replace: true });
   };
@@ -243,7 +269,9 @@ export default function Login({ setIsAuthenticated }) {
                 </div>
 
                 {capsLockOn && (
-                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Caps Lock ativado</p>
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    Caps Lock ativado
+                  </p>
                 )}
               </div>
 

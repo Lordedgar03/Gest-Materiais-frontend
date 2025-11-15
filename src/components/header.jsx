@@ -1,73 +1,26 @@
+// src/components/Header.jsx
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { HelpCircle, LogOut, User, UserCircle2, Search, Command } from "lucide-react";
-import { jwtDecode } from "jwt-decode";
 import api, { Auth } from "../api";
 
-/* ==================== Templates -> capacidades ==================== */
-const TEMPLATE_TO_CAPS = {
-  baseline: [
-    { module: "dashboard", action: "visualizar" },
-    { module: "categoria", action: "visualizar" },
-    { module: "tipo", action: "visualizar" },
-    { module: "material", action: "visualizar" },
-    { module: "movimentacao", action: "visualizar" },
-    { module: "requisicao", action: "visualizar" },
-    { module: "venda", action: "visualizar" },
-    { module: "recibo", action: "visualizar" },
-  ],
-  manage_category: [
-    { module: "categoria", action: "visualizar" },
-    { module: "categoria", action: "criar" },
-    { module: "categoria", action: "editar" },
-    { module: "categoria", action: "eliminar" },
-    { module: "tipo", action: "visualizar" },
-    { module: "tipo", action: "criar" },
-    { module: "tipo", action: "editar" },
-    { module: "tipo", action: "eliminar" },
-    { module: "material", action: "visualizar" },
-    { module: "material", action: "criar" },
-    { module: "material", action: "editar" },
-    { module: "material", action: "eliminar" },
-    { module: "movimentacao", action: "visualizar" },
-    { module: "requisicao", action: "visualizar" },
-  ],
-  manage_users: [
-    { module: "usuario", action: "visualizar" },
-    { module: "usuario", action: "criar" },
-    { module: "usuario", action: "editar" },
-    { module: "usuario", action: "eliminar" },
-    { module: "log", action: "visualizar" },
-  ],
-  manage_sales: [
-    { module: "venda", action: "visualizar" },
-    { module: "venda", action: "criar" },
-    { module: "venda", action: "eliminar" },
-    { module: "recibo", action: "visualizar" },
-  ],
-};
+/* ==================== Auth helpers ==================== */
 
-function capsFromToken() {
-  const token = localStorage.getItem("token");
-  if (!token) return { isAdmin: false, capsSet: new Set(), roles: [], user: {} };
+function getAuthState() {
   try {
-    const decoded = jwtDecode(token) || {};
-    const roles = Array.isArray(decoded.roles) ? decoded.roles : [];
-    const isAdmin = roles.includes("admin");
-    const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
-    const capsSet = new Set();
-    templates.forEach((tpl) => {
-      (TEMPLATE_TO_CAPS[tpl?.template_code] || []).forEach(({ module, action }) =>
-        capsSet.add(`${module}:${action}`)
-      );
-    });
-    return { isAdmin, capsSet, roles, user: decoded };
+    const roles = JSON.parse(localStorage.getItem("roles") || "[]");
+    const caps = JSON.parse(localStorage.getItem("caps") || "[]");
+    const nome = localStorage.getItem("user_nome") || "Utilizador";
+    const isAdmin = Array.isArray(roles) && roles.includes("admin");
+    const capsSet = new Set(caps || []);
+    return { roles, caps, capsSet, isAdmin, nome };
   } catch {
-    return { isAdmin: false, capsSet: new Set(), roles: [], user: {} };
+    return { roles: [], caps: [], capsSet: new Set(), isAdmin: false, nome: "Utilizador" };
   }
 }
+
 const roleLabel = (roles = []) =>
   Array.isArray(roles) && roles.includes("admin")
     ? "Administrador"
@@ -91,6 +44,7 @@ function RoleBadge({ roles }) {
 }
 
 /* ==================== Comandos (palette) ==================== */
+
 const RAW_COMMANDS = [
   { label: "Dashboard", path: "/dashboard", perm: { module: "dashboard" } },
   { label: "Categorias", path: "/categorias", perm: { module: "categoria" } },
@@ -116,17 +70,21 @@ export default function Header() {
 
   const [userName, setUserName] = useState("Utilizador");
   const [roles, setRoles] = useState([]);
-  const [authz, setAuthz] = useState({ isAdmin: false, capsSet: new Set(), roles: [] });
+  const [authz, setAuthz] = useState(() => {
+    const { capsSet, isAdmin } = getAuthState();
+    return { capsSet, isAdmin };
+  });
 
   const [toastMsg, setToastMsg] = useState("");
   const userMenuRef = useRef(null);
   const navigate = useNavigate();
 
   const refreshAuth = async () => {
-    const next = capsFromToken();
-    setAuthz(next);
+    const next = getAuthState();
     setRoles(next.roles);
+    setAuthz({ capsSet: next.capsSet, isAdmin: next.isAdmin });
 
+    // tenta obter nome atualizado do /profile, senão cai no localStorage
     try {
       const r = await api.get("/profile");
       const nome =
@@ -134,7 +92,7 @@ export default function Header() {
       setUserName(nome);
       localStorage.setItem("user_nome", nome);
     } catch {
-      const nome = localStorage.getItem("user_nome") || "Utilizador";
+      const nome = localStorage.getItem("user_nome") || next.nome || "Utilizador";
       setUserName(nome);
     }
   };
@@ -166,9 +124,16 @@ export default function Header() {
     try {
       await Auth.logout().catch(() => {});
     } finally {
-      ["token", "user_nome", "roles", "templates", "caps", "lastLoginAt"].forEach((k) =>
-        localStorage.removeItem(k)
-      );
+      [
+        "token",
+        "user_id",
+        "user_nome",
+        "roles",
+        "templates",
+        "caps",
+        "lastLoginAt",
+        "token_exp",
+      ].forEach((k) => localStorage.removeItem(k));
       window.dispatchEvent(new Event("auth:changed"));
       navigate("/login", { replace: true });
     }
@@ -248,7 +213,10 @@ export default function Header() {
             {/* Saudação */}
             <div className="hidden sm:flex items-center gap-2 text-slate-800 dark:text-slate-200">
               <span className="font-medium">
-                Olá, <span className="font-semibold text-indigo-600 dark:text-indigo-400">{userName}</span>
+                Olá,{" "}
+                <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                  {userName}
+                </span>
               </span>
               <RoleBadge roles={roles} />
             </div>
@@ -275,22 +243,40 @@ export default function Header() {
                 >
                   <div className="border-b px-4 py-3 border-slate-200 dark:border-slate-800">
                     <p className="text-xs text-slate-500 dark:text-slate-400">Sessão</p>
-                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{userName}</p>
+                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {userName}
+                    </p>
                     <div className="mt-1">
                       <RoleBadge roles={roles} />
                     </div>
                   </div>
 
                   <ul className="text-sm">
-                    <li className="flex items-center gap-2 px-4 py-2 text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800" role="none">
+                    <li
+                      className="flex items-center gap-2 px-4 py-2 text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      role="none"
+                    >
                       <HelpCircle size={16} aria-hidden="true" />
-                      <Link to="/ajuda" className="block w-full" role="menuitem" onClick={() => setShowUserMenu(false)}>
+                      <Link
+                        to="/ajuda"
+                        className="block w-full"
+                        role="menuitem"
+                        onClick={() => setShowUserMenu(false)}
+                      >
                         Ajuda
                       </Link>
                     </li>
-                    <li className="flex items-center gap-2 px-4 py-2 text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800" role="none">
+                    <li
+                      className="flex items-center gap-2 px-4 py-2 text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      role="none"
+                    >
                       <User size={16} aria-hidden="true" />
-                      <Link to="/perfil" className="block w-full" role="menuitem" onClick={() => setShowUserMenu(false)}>
+                      <Link
+                        to="/perfil"
+                        className="block w-full"
+                        role="menuitem"
+                        onClick={() => setShowUserMenu(false)}
+                      >
                         Perfil
                       </Link>
                     </li>
@@ -332,7 +318,9 @@ export default function Header() {
               </div>
               <ul className="max-h-72 overflow-y-auto">
                 {filtered.length === 0 && (
-                  <li className="px-4 py-6 text-center text-sm text-slate-500">Nada encontrado</li>
+                  <li className="px-4 py-6 text-center text-sm text-slate-500">
+                    Nada encontrado
+                  </li>
                 )}
                 {filtered.map((c) => (
                   <li

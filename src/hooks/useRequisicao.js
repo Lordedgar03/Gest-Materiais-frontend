@@ -44,7 +44,7 @@ const asNum = (v, d = 0) => {
 };
 
 export function useRequisicao() {
-  /* ===== Auth ===== */
+  /* ===== Auth / templates / permissões ===== */
   const decodedRef = useRef(null);
   if (!decodedRef.current && typeof window !== "undefined") {
     const t = localStorage.getItem("token");
@@ -54,20 +54,23 @@ export function useRequisicao() {
 
   const currentUser = {
     id: decoded.id ?? decoded.user_id ?? decoded.userId ?? null,
-    nome: decoded.nome ?? decoded.name ?? null,
+    nome: decoded.user_nome ?? decoded.nome ?? decoded.name ?? null,
     email: decoded.email ?? null,
   };
 
   const rolesLS = useMemo(() => JSON.parse(localStorage.getItem("roles") || "[]"), []);
   const capsLS = useMemo(() => new Set(JSON.parse(localStorage.getItem("caps") || "[]")), []);
   const isAdmin = rolesLS.includes("admin");
-  const canViewUsers = isAdmin || capsLS.has("utilizador:visualizar");
+  // module "usuario" como no TEMPLATE_TO_CAPS do useLogin
+  const canViewUsers = isAdmin || capsLS.has("usuario:visualizar");
 
   const templates = Array.isArray(decoded.templates) ? decoded.templates : [];
+
   const allowedCategoryIds = templates
-    .filter((t) => t.template_code === "manage_category" && t.resource_id != null)
+    .filter((t) => t.template_code === "manage_category" && t.resource_id != null && t.resource_id !== "")
     .map((t) => Number(t.resource_id))
-    .filter(Boolean);
+    .filter((id) => Number.isFinite(id));
+
   const hasGlobalManageCategory = templates.some(
     (t) => t.template_code === "manage_category" && (t.resource_id == null || t.resource_id === "")
   );
@@ -83,6 +86,16 @@ export function useRequisicao() {
             : p?.acao || p?.code || p?.permissao || p?.action_code || p?.actionCode;
         return String(code || "") === "manage_sales";
       }));
+
+  // espelho do canEdit (modulo=requisicoes, acao=editar) usado no backend ao atender
+  const hasReqEdit =
+    Array.isArray(decoded.permissoes) &&
+    decoded.permissoes.some((p) => {
+      if (!p || typeof p !== "object") return false;
+      const modulo = p.modulo || p.module || p.mod || "";
+      const acao = p.acao || p.action || p.permissao || p.code || "";
+      return String(modulo) === "requisicoes" && String(acao) === "editar";
+    });
 
   /* ===== Estado ===== */
   const [requisicoes, setRequisicoes] = useState([]);
@@ -118,6 +131,7 @@ export function useRequisicao() {
   const tipoById = (id) => tipos.find((t) => Number(t.tipo_id) === Number(id));
   const materialById = (id) => materiais.find((m) => Number(m.mat_id) === Number(id));
   const materialNome = (id) => materialById(id)?.mat_nome ?? `#${id}`;
+
   const categoriaIdDoMaterial = (mat) => {
     if (!mat) return null;
     const fkTipo = Number(mat.mat_fk_tipo ?? mat.tipo_id ?? 0);
@@ -127,20 +141,27 @@ export function useRequisicao() {
 
   const isConsumivel = (matId) => {
     const m = materialById(Number(matId));
-    const flag = String(m?.mat_consumivel ?? m?.consumivel ?? "").toLowerCase();
+    const flag = String(m?.mat_consumivel ?? m?.consumivel ?? "").toLowerCase().trim();
     return flag === "sim" || flag === "true" || flag === "1";
-    };
+  };
+
   const isVendavel = (matId) => {
     const m = materialById(Number(matId));
-    const flag = String(m?.mat_vendavel ?? m?.vendavel ?? "").toUpperCase();
+    const flag = String(m?.mat_vendavel ?? m?.vendavel ?? "").toUpperCase().trim();
     return flag === "SIM" || flag === "TRUE" || flag === "1";
   };
 
   const userById = (id) =>
     usuarios.find((u) => Number(u.id ?? u.user_id) === Number(id));
+
   const solicitanteId = (req) =>
     Number(req?.req_fk_user ?? req?.user_id ?? req?.req_user_id ?? req?.req_fk_utilizador ?? 0);
+
   const solicitanteNome = (req) => {
+    if (!req) return null;
+    // backend já preenche req_user_nome no list()
+    if (req.req_user_nome) return req.req_user_nome;
+
     const direto =
       req?.user?.nome ||
       req?.user?.name ||
@@ -149,32 +170,84 @@ export function useRequisicao() {
       req?.req_user_nome ||
       req?.req_user_name ||
       null;
+
     if (direto) return direto;
     const id = solicitanteId(req);
-    return id ? userById(id)?.nome || userById(id)?.name || null : null;
+    const u = id ? userById(id) : null;
+    return u?.nome || u?.name || null;
   };
 
   const _reqItems = (req) => (Array.isArray(req?.itens) ? req.itens : []);
-  const _hasVendavel = (req) => _reqItems(req).some((it) => isVendavel(it.rqi_fk_material));
 
-  const _itemCategoryOK = (it) => {
-    if (hasGlobalManageCategory) return true;
-    if (!allowedCategoryIds.length) return false;
-    const mat = materialById(Number(it?.rqi_fk_material ?? it?.mat_id ?? 0));
+  // === helpers de permissão alinhados com backend ===
+
+  // pode atender ESTE item?
+  const canAttendItem = (req, item) => {
+    if (!item) return false;
+    const mat = materialById(item.rqi_fk_material);
     if (!mat) return false;
+
+    const vendavel = isVendavel(mat.mat_id ?? item.rqi_fk_material);
+    if (vendavel) {
+      // vendável -> precisa manage_sales
+      return !!hasManageSales;
+    }
+
+    // não vendável -> manage_category (global/categoria) ou requisicoes:editar
+    if (hasGlobalManageCategory) return true;
     const catId = categoriaIdDoMaterial(mat);
-    return !!(catId && allowedCategoryIds.includes(Number(catId)));
+    if (catId && allowedCategoryIds.includes(Number(catId))) return true;
+    if (hasReqEdit) return true;
+
+    return false;
   };
 
-  const canOperateReq = (req, item) => {
+  // pode devolver ESTE item?
+  const canReturnItem = (req, item) => {
+    if (!item) return false;
+    const mat = materialById(item.rqi_fk_material);
+    if (!mat) return false;
+
+    // backend: vendável e consumível não podem ser devolvidos
+    if (isVendavel(mat.mat_id ?? item.rqi_fk_material)) return false;
+    if (isConsumivel(mat.mat_id ?? item.rqi_fk_material)) return false;
+
+    if (hasGlobalManageCategory) return true;
+    const catId = categoriaIdDoMaterial(mat);
+    if (catId && allowedCategoryIds.includes(Number(catId))) return true;
+
+    return false;
+  };
+
+  // pode decidir (Aprovar/Rejeitar/Cancelar) esta requisição?
+  const canDecideReq = (req) => {
+    if (!req) return false;
     const items = _reqItems(req);
     if (!items.length) return false;
-    if (item) {
-      return isVendavel(item.rqi_fk_material) ? !!hasManageSales : _itemCategoryOK(item);
+
+    if (hasGlobalManageCategory) return true;
+    if (!allowedCategoryIds.length) return false;
+
+    // backend exige manage_category para TODAS as categorias da requisição
+    for (const it of items) {
+      const mat = materialById(it.rqi_fk_material);
+      if (!mat) return false;
+      const catId = categoriaIdDoMaterial(mat);
+      if (!catId || !allowedCategoryIds.includes(Number(catId))) {
+        return false;
+      }
     }
-    return items.some((it) => (isVendavel(it.rqi_fk_material) ? !!hasManageSales : _itemCategoryOK(it)));
+    return true;
   };
-  const canDecideReq = (req, item) => canOperateReq(req, item);
+
+  // visão agregada: tem alguma operação possível (atender/devolver) nesta requisição?
+  const canOperateReq = (req, item) => {
+    if (item) {
+      return canAttendItem(req, item) || canReturnItem(req, item);
+    }
+    const items = _reqItems(req);
+    return items.some((it) => canAttendItem(req, it) || canReturnItem(req, it));
+  };
 
   const aprovadorPorReq = useMemo(() => {
     const map = new Map();
@@ -192,7 +265,9 @@ export function useRequisicao() {
   };
 
   /* ===== Fetch ===== */
+
   const normalizeReq = (r) => {
+    // backend já devolve plain objects (raw: true), mas mantemos normalização defensiva
     const rr = r?.toJSON ? r.toJSON() : r?.dataValues ? r.dataValues : r || {};
     const items = Array.isArray(rr.itens)
       ? rr.itens.map((it) => (it?.toJSON ? it.toJSON() : it?.dataValues ?? it))
@@ -268,6 +343,7 @@ export function useRequisicao() {
     setItemDescricao("");
     setError(null);
   };
+
   const removeItem = (idx) => setItens((l) => l.filter((_, i) => i !== idx));
 
   const submitRequisicao = async (e) => {
@@ -302,12 +378,10 @@ export function useRequisicao() {
   /* ===== Modais (aberturas) ===== */
   const openDecision = (req, tipo) => {
     if (!req) return;
-    if (String(req.req_status || "") !== "Pendente") {
+    const st = String(req.req_status || "");
+    // regra de negócio: só Pendente pode receber decisão
+    if (st !== "Pendente") {
       setError("Apenas requisições Pendentes podem receber decisão.");
-      return;
-    }
-    if (tipo !== "Cancelar" && !isAdmin) {
-      setError("Apenas administradores podem aprovar/rejeitar.");
       return;
     }
     if (!canDecideReq(req)) {
@@ -328,11 +402,15 @@ export function useRequisicao() {
       setError("Não há quantidade restante para atender.");
       return;
     }
-    if (!canOperateReq(req, item)) {
+    if (!canAttendItem(req, item)) {
       setError("Sem permissão para atender este item.");
       return;
     }
-    setUiModal({ open: true, kind: "atender", payload: { reqId: req.req_id, itemId: item.rqi_id, restante } });
+    setUiModal({
+      open: true,
+      kind: "atender",
+      payload: { reqId: req.req_id, itemId: item.rqi_id, restante },
+    });
   };
 
   const openDevolver = (req, item) => {
@@ -350,16 +428,24 @@ export function useRequisicao() {
       setError("Material vendável não pode ser devolvido.");
       return;
     }
-    if (!canOperateReq(req, item)) {
+    if (isConsumivel(item?.rqi_fk_material)) {
+      setError("Material consumível não aceita devolução.");
+      return;
+    }
+    if (!canReturnItem(req, item)) {
       setError("Sem permissão para aprovar a devolução.");
       return;
     }
-    setUiModal({ open: true, kind: "devolver", payload: { reqId: req.req_id, itemId: item.rqi_id, emUso } });
+    setUiModal({
+      open: true,
+      kind: "devolver",
+      payload: { reqId: req.req_id, itemId: item.rqi_id, emUso },
+    });
   };
 
   const openDelete = (reqId) => setUiModal({ open: true, kind: "delete", payload: { reqId } });
 
-  /* ===== Confirmações ===== */
+  /* ===== Confirmações (chamam backend) ===== */
   const confirmDecision = async ({ motivo = "" }) => {
     const { reqId, tipo } = uiModal.payload || {};
     if (!reqId || !tipo) return;
@@ -410,7 +496,14 @@ export function useRequisicao() {
     try {
       setLoading(true);
       await api.post(`/requisicoes/${reqId}/devolver`, {
-        itens: [{ rqi_id: itemId, quantidade: q, condicao: condOk ? condicao : undefined, obs: obs?.trim() || undefined }],
+        itens: [
+          {
+            rqi_id: itemId,
+            quantidade: q,
+            condicao: condOk ? condicao : undefined,
+            obs: obs?.trim() || undefined,
+          },
+        ],
       });
       await refetchRequisicoes();
       setExpanded((ex) => ({ ...ex, [reqId]: true }));
@@ -439,18 +532,10 @@ export function useRequisicao() {
     }
   };
 
-  /* ===== Listas derivadas ===== */
-  const baseList = useMemo(() => {
-    return requisicoes.filter((r) => {
-      const ownerId = asNum(r.req_fk_user ?? r.user_id);
-      const isOwner = ownerId && ownerId === asNum(currentUser.id);
-      if (isOwner) return true;
-      if (hasManageCategory) return true;
-      if (hasManageSales) return _hasVendavel(r);
-      return false;
-    });
-  }, [requisicoes, hasManageCategory, hasManageSales, currentUser.id]);
-
+  /* ===== Listas derivadas =====
+     Quem define o escopo de requisições que o utilizador pode ver é o backend.
+     Aqui só aplicamos filtros de UI (status e material) + ordenação.
+  ================================= */
   const filtered = useMemo(() => {
     const sortDesc = (a, b) => {
       const idA = asNum(a.req_id);
@@ -461,7 +546,7 @@ export function useRequisicao() {
       return db - da;
     };
 
-    return baseList
+    return requisicoes
       .filter((r) => {
         const okStatus = filterStatus === "Todos" || r.req_status === filterStatus;
         const okMaterial =
@@ -472,7 +557,7 @@ export function useRequisicao() {
         return okStatus && okMaterial;
       })
       .sort(sortDesc);
-  }, [baseList, filterStatus, filterMaterial]);
+  }, [requisicoes, filterStatus, filterMaterial]);
 
   return {
     // identidade/perms

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   FileText,
   PlusCircle,
@@ -10,15 +10,12 @@ import {
   CheckCircle,
   XCircle,
   Trash2,
-  Undo2,
   X,
   Eye,
   MoreHorizontal,
   ChevronDown,
-  Clock,
   User,
   Package,
-  Filter,
   Info,
 } from "lucide-react";
 import { useRequisicao } from "../hooks/useRequisicao";
@@ -40,15 +37,41 @@ const parseDateSafe = (dt) => {
 
 /* ===== Modal ===== */
 function Modal({ open, title, onClose, children, footer, maxWidth = "max-w-5xl" }) {
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (open && dialogRef.current) {
+      dialogRef.current.focus();
+    }
+  }, [open]);
+
   if (!open) return null;
+
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className={`w-full ${maxWidth} rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700`}>
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          className={`w-full ${maxWidth} rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-700`}
+        >
           <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h3>
             <button
+              type="button"
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 focus-visible:ring-2 ring-indigo-500"
               aria-label="Fechar modal"
@@ -76,8 +99,7 @@ function StatusChip({ status }) {
     Atendida: "bg-green-100 text-green-900 ring-1 ring-green-300",
     Devolvida: "bg-cyan-100 text-cyan-900 ring-1 ring-cyan-300",
   };
-  const cls =
-    styles[status] || "bg-gray-100 text-gray-900 ring-1 ring-gray-300";
+  const cls = styles[status] || "bg-gray-100 text-gray-900 ring-1 ring-gray-300";
   return (
     <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold ${cls}`}>
       {status}
@@ -107,22 +129,28 @@ function ReqCard({
   const itensArr = Array.isArray(req.itens) ? req.itens : [];
   const itensCount = itensArr.length;
 
-  // Totais por requisição (📌 pedido do cliente: “mostrar as quantidades do produto”)
   const { totalSolicitado, totalAtendido, totalDevolvido, totalEmUso } = useMemo(() => {
-    let s = 0, a = 0, d = 0;
+    let s = 0,
+      a = 0,
+      d = 0;
     for (const it of itensArr) {
       s += Number(it.rqi_quantidade || 0);
       a += Number(it.rqi_qtd_atendida || 0);
       d += Number(it.rqi_qtd_devolvida || 0);
     }
-    return { totalSolicitado: s, totalAtendido: a, totalDevolvido: d, totalEmUso: Math.max(0, a - d) };
+    return {
+      totalSolicitado: s,
+      totalAtendido: a,
+      totalDevolvido: d,
+      totalEmUso: Math.max(0, a - d),
+    };
   }, [itensArr]);
 
   const status = String(req.req_status || "").trim();
   const isRejectedOrCanceled = status === "Rejeitada" || status === "Cancelada";
   const mayDecide = canDecideReq(req);
 
-  // Ações (alto contraste)
+  // regras de exibição de ações
   const actions = [
     {
       key: "view",
@@ -138,7 +166,8 @@ function ReqCard({
       icon: CheckCircle,
       onClick: () => openDecision(req, "Aprovar"),
       cls: "bg-emerald-600 hover:bg-emerald-700 text-white",
-      show: isAdmin && status === "Pendente" && mayDecide && !isRejectedOrCanceled,
+      // alinhado com backend: quem pode decidir (manage_category) pode aprovar
+      show: status === "Pendente" && mayDecide && !isRejectedOrCanceled,
     },
     {
       key: "reject",
@@ -146,7 +175,7 @@ function ReqCard({
       icon: XCircle,
       onClick: () => openDecision(req, "Rejeitar"),
       cls: "bg-rose-600 hover:bg-rose-700 text-white",
-      show: isAdmin && status === "Pendente" && mayDecide && !isRejectedOrCanceled,
+      show: status === "Pendente" && mayDecide && !isRejectedOrCanceled,
     },
     {
       key: "cancel",
@@ -166,7 +195,6 @@ function ReqCard({
     },
   ].filter((a) => a.show);
 
-  // Mobile menu
   const [moreOpen, setMoreOpen] = useState(false);
   const primaryMobile = actions[0];
   const restMobile = actions.slice(1);
@@ -201,7 +229,7 @@ function ReqCard({
         </div>
       </header>
 
-      {/* Totais com alto contraste */}
+      {/* Totais */}
       <div className="p-5">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-lg bg-blue-100 text-blue-900 ring-1 ring-blue-300 p-3 text-center">
@@ -222,7 +250,7 @@ function ReqCard({
           </div>
         </div>
 
-        {/* Resumo do primeiro item (sempre mostra as quantidades do produto em destaque) */}
+        {/* Destaque do primeiro item */}
         {itensArr.length > 0 ? (
           <div className="mt-5 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-start gap-3">
@@ -273,6 +301,7 @@ function ReqCard({
               return (
                 <button
                   key={a.key}
+                  type="button"
                   onClick={a.onClick}
                   className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg focus-visible:ring-2 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 ${a.cls}`}
                 >
@@ -287,6 +316,7 @@ function ReqCard({
           <div className="sm:hidden flex gap-2">
             {primaryMobile && (
               <button
+                type="button"
                 onClick={primaryMobile.onClick}
                 className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg ${primaryMobile.cls}`}
               >
@@ -297,6 +327,7 @@ function ReqCard({
             {restMobile.length > 0 && (
               <div className="relative">
                 <button
+                  type="button"
                   onClick={() => setMoreOpen((o) => !o)}
                   aria-expanded={moreOpen}
                   aria-haspopup="menu"
@@ -304,7 +335,11 @@ function ReqCard({
                 >
                   <MoreHorizontal className="h-4 w-4" />
                   Mais
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${moreOpen ? "rotate-180" : ""}`} />
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${
+                      moreOpen ? "rotate-180" : ""
+                    }`}
+                  />
                 </button>
                 {moreOpen && (
                   <div
@@ -316,6 +351,7 @@ function ReqCard({
                       return (
                         <button
                           key={a.key}
+                          type="button"
                           onClick={() => {
                             a.onClick();
                             setMoreOpen(false);
@@ -410,11 +446,15 @@ export default function Requisitions() {
     if (!term) return [...filtered].sort(byIdDesc);
     return filtered
       .filter((req) => {
-        const code = (req.req_codigo ?? req.codigo ?? `#${req.req_id ?? ""}`).toString().toLowerCase();
+        const code = (req.req_codigo ?? req.codigo ?? `#${req.req_id ?? ""}`)
+          .toString()
+          .toLowerCase();
         const matchCode = code.includes(term);
         const matchItem =
           Array.isArray(req.itens) &&
-          req.itens.some((it) => (materialNome(it.rqi_fk_material) || "").toLowerCase().includes(term));
+          req.itens.some((it) =>
+            (materialNome(it.rqi_fk_material) || "").toLowerCase().includes(term)
+          );
         return matchCode || matchItem;
       })
       .sort(byIdDesc);
@@ -432,9 +472,9 @@ export default function Requisitions() {
   }
 
   return (
-    <main className="min-h-screen  dark:bg-gray-950">
+    <main className="min-h-screen dark:bg-gray-950">
       {/* Topbar */}
-      <div className="sticky top-0 z-30 bg-white/95 dark:bg-gray-950/95 border-b  dark:border-gray-800 backdrop-blur">
+      <div className="sticky top-0 z-30 bg-white/95 dark:bg-gray-950/95 border-b dark:border-gray-800 backdrop-blur">
         <div className="mx-auto p-2">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
@@ -442,11 +482,16 @@ export default function Requisitions() {
                 <FileText className="text-white h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white">Requisições</h1>
-                <p className="text-gray-600 dark:text-gray-300">Acompanhe e gerencie as requisições de materiais</p>
+                <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white">
+                  Requisições
+                </h1>
+                <p className="text-gray-600 dark:text-gray-300">
+                  Acompanhe e gerencie as requisições de materiais
+                </p>
               </div>
             </div>
             <button
+              type="button"
               onClick={() => setShowForm(true)}
               className="inline-flex items-center gap-2 px-5 py-3 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 font-bold"
             >
@@ -457,13 +502,17 @@ export default function Requisitions() {
           </div>
 
           {error && (
-            <div role="alert" className="mt-4 rounded-lg bg-red-50 text-red-900 ring-1 ring-red-300 p-3">
+            <div
+              role="alert"
+              className="mt-4 rounded-lg bg-red-50 text-red-900 ring-1 ring-red-300 p-3"
+            >
               <div className="flex items-start gap-3">
                 <AlertCircle className="h-5 w-5 mt-0.5" />
                 <div className="flex-1">
                   <p className="font-semibold">{String(error)}</p>
                 </div>
                 <button
+                  type="button"
                   className="px-3 py-1 text-sm font-semibold text-red-800 hover:bg-red-100 rounded-md"
                   onClick={() => setError(null)}
                 >
@@ -476,11 +525,18 @@ export default function Requisitions() {
           {/* Filtros */}
           <section className="mt-5 grid grid-cols-1 lg:grid-cols-12 gap-4">
             <div className="lg:col-span-5">
-              <label htmlFor="busca-req" className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
+              <label
+                htmlFor="busca-req"
+                className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2"
+              >
                 Pesquisar
               </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} aria-hidden />
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                  size={18}
+                  aria-hidden
+                />
                 <input
                   id="busca-req"
                   value={q}
@@ -492,8 +548,7 @@ export default function Requisitions() {
             </div>
 
             <div className="lg:col-span-3">
-              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2 items-center gap-2">
-              
+              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
                 Status
               </label>
               <select
@@ -502,15 +557,25 @@ export default function Requisitions() {
                 className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="Todos">Todos</option>
-                {["Pendente","Aprovada","Atendida","Em Uso","Parcial","Devolvida","Rejeitada","Cancelada"].map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                {[
+                  "Pendente",
+                  "Aprovada",
+                  "Atendida",
+                  "Em Uso",
+                  "Parcial",
+                  "Devolvida",
+                  "Rejeitada",
+                  "Cancelada",
+                ].map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="lg:col-span-4">
-              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2 items-center gap-2">
- 
+              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
                 Material
               </label>
               <select
@@ -520,7 +585,9 @@ export default function Requisitions() {
               >
                 <option value="Todos">Todos os materiais</option>
                 {materiais.map((m) => (
-                  <option key={m.mat_id} value={m.mat_id}>{m.mat_nome}</option>
+                  <option key={m.mat_id} value={m.mat_id}>
+                    {m.mat_nome}
+                  </option>
                 ))}
               </select>
             </div>
@@ -560,9 +627,14 @@ export default function Requisitions() {
           <div className="text-center py-16">
             <div className="mx-auto max-w-md rounded-2xl border border-gray-200 dark:border-gray-800 p-10">
               <FileText className="h-10 w-10 text-gray-400 mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Nenhuma requisição encontrada</h3>
-              <p className="text-gray-600 dark:text-gray-300 mt-1">Ajuste os filtros ou crie uma nova requisição.</p>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                Nenhuma requisição encontrada
+              </h3>
+              <p className="text-gray-600 dark:text-gray-300 mt-1">
+                Ajuste os filtros ou crie uma nova requisição.
+              </p>
               <button
+                type="button"
                 onClick={() => setShowForm(true)}
                 className="mt-6 inline-flex items-center gap-2 px-5 py-3 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 font-bold"
               >
@@ -583,7 +655,11 @@ export default function Requisitions() {
         title="Nova Requisição"
         footer={
           <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-            <button onClick={() => setShowForm(false)} className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 text-white rounded-lg font-semibold">
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
               Cancelar
             </button>
             <button
@@ -592,7 +668,9 @@ export default function Requisitions() {
               disabled={submitting}
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-extrabold disabled:opacity-70"
             >
-              {submitting && <span className="mr-2 inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              {submitting && (
+                <span className="mr-2 inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              )}
               Criar Requisição
             </button>
           </div>
@@ -601,7 +679,9 @@ export default function Requisitions() {
         <form id="form-req" onSubmit={submitRequisicao} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">Necessário em</label>
+              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">
+                Necessário em
+              </label>
               <input
                 type="date"
                 value={formNeededAt}
@@ -610,7 +690,9 @@ export default function Requisitions() {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">Local de entrega</label>
+              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">
+                Local de entrega
+              </label>
               <input
                 type="text"
                 value={formLocalEntrega}
@@ -620,7 +702,9 @@ export default function Requisitions() {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">Justificativa</label>
+              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">
+                Justificativa
+              </label>
               <input
                 type="text"
                 value={formJustificativa}
@@ -630,7 +714,9 @@ export default function Requisitions() {
               />
             </div>
             <div className="md:col-span-2 lg:col-span-3">
-              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">Observações</label>
+              <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-1">
+                Observações
+              </label>
               <textarea
                 value={formObservacoes}
                 onChange={(e) => setFormObservacoes(e.target.value)}
@@ -690,22 +776,46 @@ export default function Requisitions() {
                   <table className="min-w-full">
                     <thead className="bg-gray-100 dark:bg-gray-800">
                       <tr>
-                        <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">#</th>
-                        <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Material</th>
-                        <th className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Qtd</th>
-                        <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Ações</th>
+                        <th
+                          scope="col"
+                          className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                        >
+                          #
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                        >
+                          Material
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                        >
+                          Qtd
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                        >
+                          Ações
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-800 bg-white dark:bg-gray-900">
                       {itens.map((it, idx) => (
                         <tr key={it.rqi_id ?? idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                          <td className="px-5 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100">#{idx + 1}</td>
+                          <td className="px-5 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            #{idx + 1}
+                          </td>
                           <td className="px-5 py-3">
                             <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                               {materialNome(it.rqi_fk_material)}
                             </div>
                             {it.rqi_descricao && (
-                              <div className="text-xs text-gray-600 dark:text-gray-300">{it.rqi_descricao}</div>
+                              <div className="text-xs text-gray-600 dark:text-gray-300">
+                                {it.rqi_descricao}
+                              </div>
                             )}
                           </td>
                           <td className="px-5 py-3 text-sm font-extrabold text-gray-900 dark:text-gray-100 text-right">
@@ -738,10 +848,15 @@ export default function Requisitions() {
         title={`Registrar decisão — ${uiModal.payload?.tipo ?? ""}`}
         footer={
           <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-            <button onClick={closeModal} className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold">
+            <button
+              type="button"
+              onClick={closeModal}
+              className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={() => {
                 const motivo = document.getElementById("motivo-dec")?.value || "";
                 confirmDecision({ motivo });
@@ -753,7 +868,10 @@ export default function Requisitions() {
           </div>
         }
       >
-        <label htmlFor="motivo-dec" className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
+        <label
+          htmlFor="motivo-dec"
+          className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2"
+        >
           Motivo (opcional)
         </label>
         <textarea
@@ -771,12 +889,19 @@ export default function Requisitions() {
         title="Atender item"
         footer={
           <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-            <button onClick={closeModal} className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold">
+            <button
+              type="button"
+              onClick={closeModal}
+              className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={() => {
-                const quantidade = Number(document.getElementById("qtd-atender")?.value || 0);
+                const quantidade = Number(
+                  document.getElementById("qtd-atender")?.value || 0
+                );
                 confirmAtender({ quantidade });
               }}
               className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-extrabold"
@@ -789,7 +914,10 @@ export default function Requisitions() {
         <div className="rounded-lg bg-blue-50 text-blue-900 ring-1 ring-blue-300 p-3 mb-4">
           Restante para atender: <b>{uiModal.payload?.restante ?? 0}</b>
         </div>
-        <label htmlFor="qtd-atender" className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
+        <label
+          htmlFor="qtd-atender"
+          className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2"
+        >
           Quantidade
         </label>
         <input
@@ -809,10 +937,15 @@ export default function Requisitions() {
         title="Aprovar devolução"
         footer={
           <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-            <button onClick={closeModal} className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold">
+            <button
+              type="button"
+              onClick={closeModal}
+              className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
               Cancelar
             </button>
             <button
+              type="button"
               onClick={() => {
                 const quantidade = Number(document.getElementById("qtd-dev")?.value || 0);
                 const condicao = document.getElementById("cond-dev")?.value || "Boa";
@@ -831,7 +964,10 @@ export default function Requisitions() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="qtd-dev" className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
+            <label
+              htmlFor="qtd-dev"
+              className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2"
+            >
               Quantidade a devolver
             </label>
             <input
@@ -844,7 +980,10 @@ export default function Requisitions() {
             />
           </div>
           <div>
-            <label htmlFor="cond-dev" className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
+            <label
+              htmlFor="cond-dev"
+              className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2"
+            >
               Condição
             </label>
             <select
@@ -858,7 +997,10 @@ export default function Requisitions() {
             </select>
           </div>
           <div className="md:col-span-2">
-            <label htmlFor="obs-dev" className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">
+            <label
+              htmlFor="obs-dev"
+              className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-2"
+            >
               Observações
             </label>
             <textarea
@@ -878,10 +1020,18 @@ export default function Requisitions() {
         title="Excluir requisição"
         footer={
           <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-            <button onClick={closeModal} className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold">
+            <button
+              type="button"
+              onClick={closeModal}
+              className="px-5 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg font-semibold bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
               Cancelar
             </button>
-            <button onClick={confirmDelete} className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-extrabold">
+            <button
+              type="button"
+              onClick={confirmDelete}
+              className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-extrabold"
+            >
               Excluir
             </button>
           </div>
@@ -900,55 +1050,103 @@ export default function Requisitions() {
       <Modal
         open={viewOpen}
         onClose={() => setViewOpen(false)}
-        title={`Detalhes da Requisição — ${viewReq?.req_codigo ?? viewReq?.codigo ?? `#${viewReq?.req_id ?? ""}`}`}
+        title={`Detalhes da Requisição — ${
+          viewReq?.req_codigo ?? viewReq?.codigo ?? `#${viewReq?.req_id ?? ""}`
+        }`}
         maxWidth="max-w-6xl"
       >
         {viewReq ? (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-5 rounded-lg bg-gray-50 dark:bg-gray-900">
               <div>
-                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Código</div>
+                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                  Código
+                </div>
                 <div className="font-extrabold text-gray-900 dark:text-white">
                   {viewReq.req_codigo ?? viewReq.codigo ?? `#${viewReq.req_id}`}
                 </div>
               </div>
               <div>
-                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Status</div>
+                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                  Status
+                </div>
                 <StatusChip status={viewReq.req_status} />
               </div>
               <div>
-                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Criada em</div>
+                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                  Criada em
+                </div>
                 <div className="font-semibold text-gray-900 dark:text-white">
                   {parseDateSafe(viewReq.createdAt || viewReq.req_created_at || viewReq.req_date)}
                 </div>
               </div>
               <div>
-                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Necessário em</div>
+                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                  Necessário em
+                </div>
                 <div className="font-semibold text-gray-900 dark:text-white">
                   {parseDateSafe(viewReq.req_needed_at || viewReq.req_neededAt)}
                 </div>
               </div>
               <div>
-                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Solicitante</div>
+                <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                  Solicitante
+                </div>
                 <div className="font-semibold text-gray-900 dark:text-white">
-                  {solicitanteNome(viewReq) || (solicitanteId(viewReq) ? `Usuário #${solicitanteId(viewReq)}` : "—")}
+                  {solicitanteNome(viewReq) ||
+                    (solicitanteId(viewReq) ? `Usuário #${solicitanteId(viewReq)}` : "—")}
                 </div>
               </div>
             </div>
 
-            {/* Tabela de itens com colunas numéricas alinhadas à direita */}
+            {/* Tabela de itens */}
             <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-100 dark:bg-gray-800">
                     <tr>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Item</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Material</th>
-                      <th className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Solicitado</th>
-                      <th className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Atendido</th>
-                      <th className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Devolvido</th>
-                      <th className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Status</th>
-                      <th className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase">Ações</th>
+                      <th
+                        scope="col"
+                        className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                      >
+                        Item
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                      >
+                        Material
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                      >
+                        Solicitado
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                      >
+                        Atendido
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                      >
+                        Devolvido
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-5 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                      >
+                        Status
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-5 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-200 uppercase"
+                      >
+                        Ações
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-800 bg-white dark:bg-gray-900">
@@ -960,7 +1158,11 @@ export default function Requisitions() {
                       const emUso = Math.max(0, atendido - devolvido);
                       const reqStatus = String(viewReq.req_status || "");
 
-                      const canServe = ["Aprovada", "Parcial", "Em Uso"].includes(reqStatus) && restante > 0 && canOperateReq(viewReq, it);
+                      const canServe =
+                        ["Aprovada", "Parcial", "Em Uso"].includes(reqStatus) &&
+                        restante > 0 &&
+                        canOperateReq(viewReq, it);
+
                       const canReturn =
                         ["Em Uso", "Parcial", "Atendida"].includes(reqStatus) &&
                         emUso > 0 &&
@@ -969,15 +1171,32 @@ export default function Requisitions() {
                         !isVendavel?.(it.rqi_fk_material);
 
                       return (
-                        <tr key={it.rqi_id ?? i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                          <td className="px-5 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100">#{it.rqi_id ?? i + 1}</td>
-                          <td className="px-5 py-3">
-                            <div className="font-semibold text-gray-900 dark:text-gray-100">{materialNome(it.rqi_fk_material)}</div>
-                            {it.rqi_descricao && <div className="text-xs text-gray-600 dark:text-gray-300">{it.rqi_descricao}</div>}
+                        <tr
+                          key={it.rqi_id ?? i}
+                          className="hover:bg-gray-50 dark:hover:bg-gray-800"
+                        >
+                          <td className="px-5 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            #{it.rqi_id ?? i + 1}
                           </td>
-                          <td className="px-5 py-3 text-sm font-extrabold text-gray-900 dark:text-gray-100 text-right">{solicitado}</td>
-                          <td className="px-5 py-3 text-sm font-extrabold text-emerald-800 dark:text-emerald-300 text-right">{atendido}</td>
-                          <td className="px-5 py-3 text-sm font-extrabold text-purple-800 dark:text-purple-300 text-right">{devolvido}</td>
+                          <td className="px-5 py-3">
+                            <div className="font-semibold text-gray-900 dark:text-gray-100">
+                              {materialNome(it.rqi_fk_material)}
+                            </div>
+                            {it.rqi_descricao && (
+                              <div className="text-xs text-gray-600 dark:text-gray-300">
+                                {it.rqi_descricao}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-5 py-3 text-sm font-extrabold text-gray-900 dark:text-gray-100 text-right">
+                            {solicitado}
+                          </td>
+                          <td className="px-5 py-3 text-sm font-extrabold text-emerald-800 dark:text-emerald-300 text-right">
+                            {atendido}
+                          </td>
+                          <td className="px-5 py-3 text-sm font-extrabold text-purple-800 dark:text-purple-300 text-right">
+                            {devolvido}
+                          </td>
                           <td className="px-5 py-3">
                             <span className="inline-flex px-2 py-1 rounded-full text-xs font-bold bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100 ring-1 ring-gray-300 dark:ring-gray-700">
                               {it.rqi_status || "—"}
@@ -987,6 +1206,7 @@ export default function Requisitions() {
                             <div className="flex justify-end gap-2">
                               {canServe && (
                                 <button
+                                  type="button"
                                   onClick={() => {
                                     setViewOpen(false);
                                     setTimeout(() => openAtender(viewReq, it), 0);
@@ -999,6 +1219,7 @@ export default function Requisitions() {
                               )}
                               {canReturn && (
                                 <button
+                                  type="button"
                                   onClick={() => openDevolver(viewReq, it)}
                                   className="px-3 py-1.5 text-xs font-bold rounded-md bg-cyan-600 hover:bg-cyan-700 text-white"
                                   title={`Devolver (em uso ${emUso})`}
@@ -1016,19 +1237,33 @@ export default function Requisitions() {
               </div>
             </div>
 
-            {(viewReq.req_justificativa || viewReq.req_observacoes || viewReq.req_local_entrega) && (
+            {(viewReq.req_justificativa ||
+              viewReq.req_observacoes ||
+              viewReq.req_local_entrega) && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 rounded-lg bg-gray-50 dark:bg-gray-900">
                 <div>
-                  <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Local de entrega</div>
-                  <div className="font-semibold text-gray-900 dark:text-white">{viewReq.req_local_entrega || "—"}</div>
+                  <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                    Local de entrega
+                  </div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {viewReq.req_local_entrega || "—"}
+                  </div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Justificativa</div>
-                  <div className="font-semibold text-gray-900 dark:text-white">{viewReq.req_justificativa || "—"}</div>
+                  <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                    Justificativa
+                  </div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {viewReq.req_justificativa || "—"}
+                  </div>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">Observações</div>
-                  <div className="font-semibold text-gray-900 dark:text-white">{viewReq.req_observacoes || "—"}</div>
+                  <div className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase mb-1">
+                    Observações
+                  </div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {viewReq.req_observacoes || "—"}
+                  </div>
                 </div>
               </div>
             )}

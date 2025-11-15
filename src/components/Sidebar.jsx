@@ -1,3 +1,4 @@
+// src/components/Sidebar.jsx
 "use client";
 
 import { NavLink, useNavigate } from "react-router-dom";
@@ -19,136 +20,183 @@ import {
   GraduationCap,
   CalendarCheck2,
 } from "lucide-react";
-import { jwtDecode } from "jwt-decode";
 import { useEffect, useMemo, useState, useCallback } from "react";
 
-/* ==================== Permissões ==================== */
-const ADMIN_ONLY = new Set(["relatorio"]);
-const TEMPLATE_TO_PERMS = {
-  baseline: [
-    { module: "dashboard", action: "visualizar" },
-    { module: "requisicao", action: "visualizar" },
-    { module: "categoria", action: "visualizar" },
-    { module: "tipo", action: "visualizar" },
-    { module: "material", action: "visualizar" },
-    { module: "movimentacao", action: "visualizar" },
-    { module: "venda", action: "visualizar" },
-  ],
-  manage_category: [
-    { module: "categoria", action: "visualizar" },
-    { module: "categoria", action: "criar" },
-    { module: "categoria", action: "editar" },
-    { module: "categoria", action: "eliminar" },
-    { module: "tipo", action: "visualizar" },
-    { module: "tipo", action: "criar" },
-    { module: "tipo", action: "editar" },
-    { module: "tipo", action: "eliminar" },
-    { module: "material", action: "visualizar" },
-    { module: "material", action: "criar" },
-    { module: "material", action: "editar" },
-    { module: "material", action: "eliminar" },
-    { module: "movimentacao", action: "visualizar" },
-    { module: "requisicao", action: "visualizar" },
-  ],
-  manage_users: [
-    { module: "usuario", action: "visualizar" },
-    { module: "usuario", action: "criar" },
-    { module: "usuario", action: "editar" },
-    { module: "usuario", action: "eliminar" },
-    { module: "log", action: "visualizar" },
-  ],
-  manage_sales: [
-    { module: "venda", action: "visualizar" },
-    { module: "venda", action: "criar" },
-    { module: "venda", action: "eliminar" },
-  ],
-};
+/* ==================== Auth / Perms ==================== */
 
-function getClaimsFromToken() {
-  const token = localStorage.getItem("token");
-  if (!token) return { roles: [], templates: [] };
+function getAuthState() {
   try {
-    const { roles = [], templates = [] } = jwtDecode(token) || {};
-    return {
-      roles: Array.isArray(roles) ? roles : [],
-      templates: Array.isArray(templates) ? templates : [],
-    };
+    const roles = JSON.parse(localStorage.getItem("roles") || "[]");
+    const caps = JSON.parse(localStorage.getItem("caps") || "[]");
+    const nome = localStorage.getItem("user_nome") || "Utilizador";
+    return { roles, caps, nome };
   } catch {
-    return { roles: [], templates: [] };
+    return { roles: [], caps: [], nome: "Utilizador" };
   }
 }
 
-function buildPermissionIndex({ roles, templates }) {
-  if (roles?.includes?.("admin")) return { __admin: true };
-  const index = new Map();
-  const push = (m, a) => {
-    if (!index.has(m)) index.set(m, new Set());
-    index.get(m).add(a);
-  };
-  const codes = (templates || []).map((t) => t?.template_code).filter(Boolean);
-  for (const code of codes) {
-    (TEMPLATE_TO_PERMS[code] || []).forEach(({ module, action }) => push(module, action));
-  }
-  return Object.fromEntries([...index.entries()].map(([k, v]) => [k, v]));
-}
+function canSeeItem(item, capsSet, roles) {
+  // Ajuda sempre visível para quem está autenticado
+  if (item.public) return true;
 
-function hasPermission(permsIndex, roles, module, action = "visualizar") {
-  if (!permsIndex) return false;
-  const isAdmin = roles?.includes?.("admin") || permsIndex.__admin;
-  if (ADMIN_ONLY.has(module)) return !!isAdmin; // admin-only
+  const isAdmin = roles?.includes?.("admin");
+  if (item.adminOnly) return !!isAdmin;
+
+  // Se não tiver módulo / cap definido, mostramos por defeito
+  if (!item.module && !item.cap) return true;
+
   if (isAdmin) return true;
-  const set = permsIndex[module];
-  return !!(set && (set.has?.(action) || set.has?.("visualizar")));
+
+  // Se tiver cap explícita, usa-a
+  if (item.cap) {
+    return capsSet.has(item.cap);
+  }
+
+  // Caso contrário, assume module:visualizar
+  if (item.module) {
+    const capKey = `${item.module}:visualizar`;
+    return capsSet.has(capKey);
+  }
+
+  return false;
 }
 
 /* ==================== Itens de navegação ==================== */
+/**
+ * IMPORTANTE:
+ * Os "module" aqui têm que bater com os usados no client/backend:
+ *   "dashboard", "categoria", "tipo", "material", "movimentacao",
+ *   "requisicao", "venda", "usuario", "relatorio"
+ */
+
 const RAW_GROUPS = [
   {
     title: "Principal",
     items: [
-      { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard", perm: { module: "dashboard" } },
+      {
+        path: "/dashboard",
+        icon: LayoutDashboard,
+        label: "Dashboard",
+        module: "dashboard",
+      },
     ],
   },
   {
     title: "Gestão",
     items: [
-      { path: "/categorias", icon: List,         label: "Categorias",     perm: { module: "categoria" } },
-      { path: "/tipos",      icon: Boxes,        label: "Tipos",          perm: { module: "tipo" } },
-      { path: "/materiais",  icon: PackageCheck, label: "Materiais",      perm: { module: "material" } },
-      { path: "/movimentos", icon: Repeat,       label: "Movimentações",  perm: { module: "movimentacao" } },
-      { path: "/requisicoes",icon: FileText,     label: "Requisições",    perm: { module: "requisicao" } },
+      {
+        path: "/categorias",
+        icon: List,
+        label: "Categorias",
+        module: "categoria",
+      },
+      {
+        path: "/tipos",
+        icon: Boxes,
+        label: "Tipos",
+        module: "tipo",
+      },
+      {
+        path: "/materiais",
+        icon: PackageCheck,
+        label: "Materiais",
+        module: "material",
+      },
+      {
+        path: "/movimentos",
+        icon: Repeat,
+        label: "Movimentações",
+        module: "movimentacao",
+      },
+      {
+        path: "/requisicoes",
+        icon: FileText,
+        label: "Requisições",
+        module: "requisicao",
+      },
     ],
   },
   {
     title: "Vendas",
     items: [
-      { path: "/vendas", icon: FileText, label: "Vendas",      perm: { module: "venda" } },
-      { path: "/caixa",  icon: Receipt,  label: "Caixa",       perm: { module: "venda" } },
-      { path: "/pdv",    icon: Receipt,  label: "Atendimento", perm: { module: "venda" } },
+      {
+        path: "/vendas",
+        icon: FileText,
+        label: "Vendas",
+        module: "venda",
+      },
+      {
+        path: "/caixa",
+        icon: Receipt,
+        label: "Caixa",
+        module: "venda",
+      },
+      {
+        path: "/pdv",
+        icon: Receipt,
+        label: "Atendimento",
+        module: "venda",
+      },
     ],
   },
   {
     title: "Almoço",
     items: [
-      { path: "/almoco",    icon: UtensilsCrossed, label: "Almoço",    perm: { module: "venda" } },
-      { path: "/alunos",    icon: GraduationCap,   label: "Alunos",    perm: { module: "venda" } },
-      { path: "/marcacoes", icon: CalendarCheck2,  label: "Marcações", perm: { module: "venda" } },
+      // No lado do client estamos a tratar almoço como parte do módulo "venda"
+      {
+        path: "/almoco",
+        icon: UtensilsCrossed,
+        label: "Almoço",
+        module: "venda",
+      },
+      {
+        path: "/alunos",
+        icon: GraduationCap,
+        label: "Alunos",
+        module: "venda",
+      },
+      {
+        path: "/marcacoes",
+        icon: CalendarCheck2,
+        label: "Marcações",
+        module: "venda",
+      },
     ],
   },
   {
     title: "Sistema",
-    items: [{ path: "/utilizadores", icon: Users, label: "Utilizadores", perm: { module: "usuario" } }],
+    items: [
+      {
+        path: "/utilizadores",
+        icon: Users,
+        label: "Utilizadores",
+        module: "usuario",
+      },
+    ],
   },
   {
     title: "Relatórios",
     items: [
-      { path: "/relatorios", icon: FileText,  label: "Relatórios", perm: { module: "relatorio" } }, // admin-only
-      { path: "/ajuda",      icon: BadgeInfo, label: "Ajuda",      perm: { module: "dashboard" } },
+      {
+        path: "/relatorios",
+        icon: FileText,
+        label: "Relatórios",
+        module: "relatorio",
+        adminOnly: true, // só admin
+      },
+      {
+        path: "/ajuda",
+        icon: BadgeInfo,
+        label: "Ajuda",
+        module: "dashboard",
+        public: true, // sempre visível para quem está logado
+      },
     ],
   },
 ];
 
 /* ==================== Sub-componentes ==================== */
+
 function NavSection({ title, children, expanded }) {
   return (
     <div className="mb-1">
@@ -175,9 +223,11 @@ function NavItem({ to, icon: Icon, label, compact, onClick }) {
           `
             group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium
             transition-colors
-            ${isActive
-              ? "bg-white/10 text-white ring-1 ring-white/15 shadow-md"
-              : "text-slate-300 hover:bg-white/5 hover:text-white"}
+            ${
+              isActive
+                ? "bg-white/10 text-white ring-1 ring-white/15 shadow-md"
+                : "text-slate-300 hover:bg-white/5 hover:text-white"
+            }
           `
         }
       >
@@ -202,15 +252,17 @@ function NavItem({ to, icon: Icon, label, compact, onClick }) {
 }
 
 /* ==================== Sidebar ==================== */
+
 export default function Sidebar({ open, setOpen }) {
   const [isMobile, setIsMobile] = useState(false);
   const navigate = useNavigate();
 
-  const [claims, setClaims] = useState(() => getClaimsFromToken());
-  const { roles } = claims;
+  const [auth, setAuth] = useState(() => getAuthState());
+  const { roles, caps } = auth;
 
+  // Atualiza quando o login/logout mudar (useLogin dispara "auth:changed")
   useEffect(() => {
-    const reload = () => setClaims(getClaimsFromToken());
+    const reload = () => setAuth(getAuthState());
     window.addEventListener("storage", reload);
     window.addEventListener("auth:changed", reload);
     return () => {
@@ -219,7 +271,7 @@ export default function Sidebar({ open, setOpen }) {
     };
   }, []);
 
-  const permsIndex = useMemo(() => buildPermissionIndex(claims), [claims]);
+  const capsSet = useMemo(() => new Set(caps || []), [caps]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 1024);
@@ -229,12 +281,13 @@ export default function Sidebar({ open, setOpen }) {
   }, []);
 
   const groups = useMemo(() => {
-    const permitted = RAW_GROUPS.map((g) => ({
-      ...g,
-      items: g.items.filter((it) => hasPermission(permsIndex, roles, it.perm.module, it.perm.action)),
-    })).filter((g) => g.items.length > 0);
-    return permitted;
-  }, [permsIndex, roles]);
+    return RAW_GROUPS.map((g) => {
+      const items = g.items.filter((item) =>
+        canSeeItem(item, capsSet, roles)
+      );
+      return { ...g, items };
+    }).filter((g) => g.items.length > 0);
+  }, [capsSet, roles]);
 
   const widthCls = open ? "w-72" : isMobile ? "w-0" : "w-18";
   const asMobileDrawer = isMobile ? "fixed inset-y-0 left-0" : "relative";
@@ -254,7 +307,10 @@ export default function Sidebar({ open, setOpen }) {
     <>
       {/* Overlay mobile */}
       {isMobile && open && (
-        <div className="fixed inset-0 z-40 bg-black/50" onClick={() => setOpen(false)} />
+        <div
+          className="fixed inset-0 z-40 bg-black/50"
+          onClick={() => setOpen(false)}
+        />
       )}
 
       <aside className={baseAside} aria-label="Navegação principal">
@@ -263,10 +319,16 @@ export default function Sidebar({ open, setOpen }) {
           {open && (
             <div className="flex items-center gap-3 pl-1">
               <div className="h-10 w-10 rounded-xl overflow-hidden bg-white/5 ring-1 ring-white/10 flex items-center justify-center">
-                <img src="/info11.png" alt="Logótipo" className="h-full w-full object-cover" />
+                <img
+                  src="/info11.png"
+                  alt="Logótipo"
+                  className="h-full w-full object-cover"
+                />
               </div>
               <div>
-                <p className="text-sm font-semibold leading-5">Painel de controle - EPSTP</p>
+                <p className="text-sm font-semibold leading-5">
+                  Painel de controle - EPSTP
+                </p>
                 <p className="text-[11px] text-slate-400/90">Controlo & Gestão</p>
               </div>
             </div>
@@ -277,7 +339,17 @@ export default function Sidebar({ open, setOpen }) {
             title={open ? "Fechar menu" : "Abrir menu"}
             aria-label="Alternar menu"
           >
-            {isMobile ? (open ? <X size={18} /> : <Menu size={18} />) : open ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+            {isMobile ? (
+              open ? (
+                <X size={18} />
+              ) : (
+                <Menu size={18} />
+              )
+            ) : open ? (
+              <ChevronLeft size={18} />
+            ) : (
+              <ChevronRight size={18} />
+            )}
           </button>
         </div>
 
