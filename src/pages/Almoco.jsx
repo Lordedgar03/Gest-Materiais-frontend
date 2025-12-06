@@ -1,1162 +1,821 @@
-/* eslint-disable no-unused-vars */
-"use client";
-
-import React from "react";
+// src/pages/AlmocosPage.jsx
+import { useEffect, useMemo, useState } from "react";
 import {
-  Utensils, Soup, CalendarDays, CalendarRange, Settings, X, FileBarChart,
-  FileDown, Printer, PiggyBank, Coins, Loader2, CheckCircle, Clock, AlertCircle,
-  ChevronRight, ChevronLeft
+  UtensilsCrossed,
+  Settings2,
+  CalendarRange,
+  PlusCircle,
+  Filter,
+  RefreshCw,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
+  Info,
 } from "lucide-react";
-import { Formik, Form, Field } from "formik";
-import useAlmoco from "../hooks/useAlmoco";
+import { useAlmocos } from "../hooks/useAlmoco";
 
-/* =================== helpers =================== */
-const nf = new Intl.NumberFormat("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const stn = (n) => `STN ${nf.format(Number(n || 0))}`;
-const totalPago = (rows) =>
-  rows.reduce(
-    (s, r) =>
-      s +
-      ((r.ala_status || "").toLowerCase() === "pago"
-        ? Number(r.ala_valor || 0)
-        : 0),
-    0
-  );
+// Componente genérico para mostrar relatórios de forma legível
+function ReportView({ data }) {
+  if (!data) return null;
 
-const getAnoFromTurma = (t) => {
-  const m = String(t || "").trim().match(/(\d{1,2})/);
-  return m ? Number(m[1]) : "-";
-};
+  // Se vier um array
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      return (
+        <p className="text-[14px] text-gray-900">
+          Sem registos para este filtro.
+        </p>
+      );
+    }
 
-const ordenarTurmas = (a, b) => {
-  const an = getAnoFromTurma(a.turma);
-  const bn = getAnoFromTurma(b.turma);
-  if (an === "-" && bn !== "-") return 1;
-  if (bn === "-" && an !== "-") return -1;
-  if (an !== "-" && bn !== "-" && an !== bn) return an - bn;
-  return String(a.turma || "").localeCompare(String(b.turma || ""));
-};
+    // Array de objetos -> tabela simples
+    if (typeof data[0] === "object" && data[0] !== null) {
+      const keys = Object.keys(data[0]);
 
-const exportCSV = (rows, meta) => {
-  const head = ["Ano", "Turma", "Nº de almoços", "Valor por turma (STN)"];
-  const lines = [head.join(";")];
-  rows.forEach((r) =>
-    lines.push(
-      [
-        getAnoFromTurma(r.turma),
-        r.turma || "-",
-        Number(r.qtd || 0),
-        Number(r.total || 0),
-      ].join(";")
-    )
-  );
-  const total = rows.reduce((s, r) => s + Number(r.total || 0), 0);
-  lines.push(["", "", "TOTAL", total].join(";"));
-  const blob = new Blob([lines.join("\n")], {
-    type: "text/csv;charset=utf-8",
+      return (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="max-h-56 overflow-auto">
+            <table className="min-w-full text-[12px]">
+              <thead className="bg-gray-50">
+                <tr>
+                  {keys.map((k) => (
+                    <th
+                      key={k}
+                      className="px-2 py-1 text-left text-[14px] text-gray-900"
+                    >
+                      {k}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((row, idx) => (
+                  <tr key={idx} className="border-t hover:bg-violet-50/40">
+                    {keys.map((k) => (
+                      <td key={k} className="px-2 py-1 text-gray-900">
+                        {formatValue(row[k])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // Array simples (strings, números, etc.)
+    return (
+      <ul className="list-disc list-inside text-[14px] text-gray-900 space-y-1">
+        {data.map((item, idx) => (
+          <li key={idx}>{formatValue(item)}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  // Objeto simples { totalAlmocos: 10, pago: 123.5, ... }
+  if (typeof data === "object") {
+    const entries = Object.entries(data);
+
+    return (
+      <dl className="grid grid-cols-1 gap-2 text-[14px] text-gray-800">
+        {entries.map(([key, value]) => (
+          <div
+            key={key}
+            className="flex items-center justify-between border-b border-dashed border-gray-200 pb-1"
+          >
+            <dt className="text-[13px] text-gray-900">{key}</dt>
+            <dd className="font-medium">{formatValue(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+
+  // Fallback
+  return <p className="text-[14px] text-gray-900">{String(data)}</p>;
+}
+
+function formatValue(value) {
+  if (value == null) return "—";
+  if (typeof value === "number") {
+    const isInt = Number.isInteger(value);
+    return isInt ? value : value.toFixed(2);
+  }
+  if (typeof value === "boolean") {
+    return value ? "Sim" : "Não";
+  }
+  return String(value);
+}
+
+export default function AlmocosPage() {
+  const {
+    precoPadrao,
+    marcacoes,
+    relatorioHoje,
+    relatorioPorData,
+    relatorioIntervalo,
+    relatorioMensal,
+    totalMarcacoes,
+    loading,
+    saving,
+    error,
+    canView,
+    canEdit,
+    canViewReports,
+    reloadPreco,
+    updatePrecoPadrao,
+    loadMarcacoes,
+    marcarAlmoco,
+    loadRelatorioHoje,
+    loadRelatorioPorData,
+    loadRelatorioIntervalo,
+    loadRelatorioMensal,
+  } = useAlmocos();
+
+  // Abas: config | marcacoes | relatorios
+  const [activeTab, setActiveTab] = useState("config");
+
+  // Formulário de preço
+  const [novoPreco, setNovoPreco] = useState("");
+
+  // Filtros de marcação
+  const [filtroData, setFiltroData] = useState("");
+
+  // Modal de marcação
+  const [marcacaoModalOpen, setMarcacaoModalOpen] = useState(false);
+  const [marcacaoForm, setMarcacaoForm] = useState({
+    aluno_id: "",
+    data: "",
+    observacao: "",
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `almoco-${meta?.ano || ""}-${String(meta?.mes || "").replace(
-    /\s+/g,
-    "_"
-  )}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-};
 
-const getStatusIcon = (status) => {
-  switch ((status || "").toLowerCase()) {
-    case "pago":
-      return <CheckCircle size={14} aria-hidden className="text-green-600" />;
-    case "pendente":
-      return <Clock size={14} aria-hidden className="text-amber-600" />;
-    default:
-      return <AlertCircle size={14} aria-hidden className="text-gray-400" />;
-  }
-};
+  // Paginação de marcações
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
-const getStatusColor = (status) => {
-  switch ((status || "").toLowerCase()) {
-    case "pago":
-      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800";
-    case "pendente":
-      return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800";
-    default:
-      return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700";
-  }
-};
+  // Filtros de relatório
+  const [dataRelatorio, setDataRelatorio] = useState("");
+  const [intervaloInicio, setIntervaloInicio] = useState("");
+  const [intervaloFim, setIntervaloFim] = useState("");
+  const [anoMensal, setAnoMensal] = useState("");
+  const [mesMensal, setMesMensal] = useState("");
 
-/* =================== building blocks =================== */
-function Toast({ msg, tone = "success", onClose }) {
-  if (!msg) return null;
+  useEffect(() => {
+    if (canView) {
+      reloadPreco();
+      loadMarcacoes();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canView]);
 
-  const toneStyles = {
-    error: "bg-red-600 border-red-700",
-    warning: "bg-amber-500 border-amber-600",
-    success: "bg-green-600 border-green-700",
-    info: "bg-blue-600 border-blue-700",
+  useEffect(() => {
+    // sempre que mudas filtro ou lista, volta para primeira página
+    setPage(1);
+  }, [filtroData, marcacoes]);
+
+  const handleUpdatePreco = async (e) => {
+    e.preventDefault();
+    if (!canEdit || !novoPreco) return;
+
+    const valor = Number(novoPreco.toString().replace(",", "."));
+    if (Number.isNaN(valor) || valor <= 0) {
+      alert("Preço inválido. Usa um valor numérico maior que zero.");
+      return;
+    }
+    try {
+      await updatePrecoPadrao(valor);
+      setNovoPreco("");
+    } catch {
+      // erro já está em `error`
+    }
   };
 
-  // normalizar "tone" vindo do hook ("ok" → success)
-  const normalizedTone =
-    tone === "error"
-      ? "error"
-      : tone === "warning"
-      ? "warning"
-      : tone === "info"
-      ? "info"
-      : "success";
+  const handleFiltrarMarcacoes = async (e) => {
+    e.preventDefault();
+    await loadMarcacoes(filtroData ? { data: filtroData } : {});
+  };
 
-  React.useEffect(() => {
-    const t = setTimeout(onClose, 5000);
-    return () => clearTimeout(t);
-  }, [onClose]);
+  const handleChangeMarcacao = (e) => {
+    const { name, value } = e.target;
+    setMarcacaoForm((prev) => ({ ...prev, [name]: value }));
+  };
 
-  return (
-    <div className="fixed bottom-6 right-6 z-50 animate-slide-in-right">
-      <div
-        className={`flex items-start gap-3 rounded-xl px-4 py-3 shadow-2xl text-white border ${
-          toneStyles[normalizedTone]
-        }`}
-      >
-        <div className="flex-1 text-sm whitespace-pre-line">{msg}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-2 opacity-80 hover:opacity-100 transition-opacity"
-          aria-label="Fechar notificação"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
-  );
-}
+  const handleCriarMarcacao = async (e) => {
+    e.preventDefault();
+    if (!canEdit) return;
 
-function Modal({ open, title, onClose, children, footer, size = "md" }) {
-  const ref = React.useRef(null);
+    if (!marcacaoForm.aluno_id || !marcacaoForm.data) {
+      alert("Preenche pelo menos o aluno e a data.");
+      return;
+    }
 
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose?.();
-    document.addEventListener("keydown", onKey);
-    ref.current?.focus();
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    try {
+      await marcarAlmoco({
+        aluno_id: marcacaoForm.aluno_id,
+        data: marcacaoForm.data,
+        observacao: marcacaoForm.observacao,
+      });
+      setMarcacaoForm({
+        aluno_id: "",
+        data: "",
+        observacao: "",
+      });
+      setMarcacaoModalOpen(false);
+      loadMarcacoes(filtroData ? { data: filtroData } : {});
+    } catch {
+      // erro já está em `error`
+    }
+  };
 
-  React.useEffect(() => {
-    document.body.style.overflow = open ? "hidden" : "unset";
-    return () => {
-      document.body.style.overflow = "unset";
-    };
-  }, [open]);
+  const handleRelatorioPorData = async (e) => {
+    e.preventDefault();
+    if (!dataRelatorio) return;
+    await loadRelatorioPorData(dataRelatorio);
+  };
 
-  if (!open) return null;
+  const handleRelatorioIntervalo = async (e) => {
+    e.preventDefault();
+    if (!intervaloInicio || !intervaloFim) return;
+    await loadRelatorioIntervalo(intervaloInicio, intervaloFim);
+  };
 
-  const maxw =
-    size === "lg" ? "max-w-3xl" : size === "xl" ? "max-w-5xl" : "max-w-lg";
+  const handleRelatorioMensal = async (e) => {
+    e.preventDefault();
+    if (!anoMensal || !mesMensal) return;
+    await loadRelatorioMensal(anoMensal, mesMensal);
+  };
 
-  return (
-    <div className="fixed inset-0 z-50 animate-fade-in">
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden
-      />
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div
-          ref={ref}
-          tabIndex={-1}
-          className={`w-full ${maxw} rounded-2xl bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 shadow-2xl animate-scale-in focus:outline-none`}
-          onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white">
-              {title}
-            </h3>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              aria-label="Fechar modal"
-            >
-              <X size={20} />
-            </button>
-          </div>
-          <div className="p-6 max-h-[70vh] overflow-y-auto">{children}</div>
-          {footer && (
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 rounded-b-2xl">
-              {footer}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+  // Paginação
+  const paginatedMarcacoes = useMemo(() => {
+    if (!Array.isArray(marcacoes) || marcacoes.length === 0) return [];
+    const start = (page - 1) * pageSize;
+    return marcacoes.slice(start, start + pageSize);
+  }, [marcacoes, page]);
 
-const Stat = ({ title, value, icon }) => (
-  <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-    <div className="flex items-center justify-between gap-3">
-      <span className="inline-grid place-items-center p-2 rounded-lg bg-gray-100 dark:bg-gray-700">
-        {icon}
-      </span>
-      <div className="text-right">
-        <div className="text-xs text-gray-500 dark:text-gray-400">
-          {title}
-        </div>
-        <div className="text-lg font-semibold text-gray-900 dark:text-white">
-          {value}
-        </div>
-      </div>
-    </div>
-  </div>
-);
+  const totalPages = useMemo(() => {
+    if (!Array.isArray(marcacoes) || marcacoes.length === 0) return 1;
+    return Math.max(1, Math.ceil(marcacoes.length / pageSize));
+  }, [marcacoes]);
 
-function EmptyHint({ icon, title = "Sem dados", subtitle }) {
-  return (
-    <div className="text-center py-10 text-gray-500 dark:text-gray-400">
-      <div className="mb-3">{icon}</div>
-      <p className="font-medium">{title}</p>
-      {subtitle && <p className="text-sm">{subtitle}</p>}
-    </div>
-  );
-}
+  const goToPage = (newPage) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setPage(newPage);
+  };
 
-function Badge({ children, icon }) {
-  return (
-    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-700 text-sm">
-      {icon}
-      {children}
-    </div>
-  );
-}
-
-function DataTable({ title, rows, loading }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
-      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-        {typeof title === "string" ? (
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {title}
-          </h3>
-        ) : (
-          <div className="text-lg font-semibold text-gray-900 dark:text-white">
-            {title}
-          </div>
-        )}
-      </div>
-      <div className="overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-700/50">
-            <tr className="text-left text-gray-700 dark:text-gray-300">
-              <th className="px-4 md:px-6 py-3 md:py-4 font-semibold">
-                Aluno
-              </th>
-              <th className="px-4 md:px-6 py-3 md:py-4 font-semibold">
-                Nº Processo
-              </th>
-              <th className="px-4 md:px-6 py-3 md:py-4 font-semibold">
-                Turma
-              </th>
-              <th className="px-4 md:px-6 py-3 md:py-4 font-semibold">
-                Status
-              </th>
-              <th className="px-4 md:px-6 py-3 md:py-4 font-semibold text-right">
-                Valor
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {loading ? (
-              <tr>
-                <td colSpan={5} className="px-6 py-10 text-center">
-                  <span className="inline-flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                    <Loader2 size={20} className="animate-spin" /> A carregar
-                    dados...
-                  </span>
-                </td>
-              </tr>
-            ) : rows?.length ? (
-              rows.map((r) => (
-                <tr
-                  key={r.ala_id}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-                >
-                  <td className="px-4 md:px-6 py-3 md:py-4 font-medium text-gray-900 dark:text-white">
-                    {r.alu_nome}
-                  </td>
-                  <td className="px-4 md:px-6 py-3 md:py-4 text-gray-600 dark:text-gray-400">
-                    {r.alu_num_processo || "-"}
-                  </td>
-                  <td className="px-4 md:px-6 py-3 md:py-4">
-                    {r.alu_turma ? (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                        {r.alu_turma}
-                      </span>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                  <td className="px-4 md:px-6 py-3 md:py-4">
-                    <span
-                      className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(
-                        r.ala_status
-                      )}`}
-                    >
-                      {getStatusIcon(r.ala_status)}
-                      {r.ala_status || "pendente"}
-                    </span>
-                  </td>
-                  <td className="px-4 md:px-6 py-3 md:py-4 text-right font-mono text-gray-900 dark:text-white">
-                    {stn(r.ala_valor)}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5} className="px-6 py-12">
-                  <EmptyHint
-                    icon={
-                      <CalendarRange
-                        size={48}
-                        className="mx-auto opacity-50"
-                      />
-                    }
-                    title="Sem registos"
-                    subtitle="Não há dados para o período atual."
-                  />
-                </td>
-              </tr>
-            )}
-          </tbody>
-
-          {rows?.length > 0 && (
-            <tfoot className="bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
-              <tr className="font-semibold text-gray-900 dark:text-white">
-                <td className="px-6 py-4" colSpan={3}>
-                  Total Pago
-                </td>
-                <td className="px-6 py-4">
-                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border border-green-200 dark:border-green-800">
-                    <CheckCircle size={12} /> Pago
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-right font-mono">
-                  {stn(totalPago(rows))}
-                </td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/* =================== NOVA INTERFACE =================== */
-export default function Almoco() {
-  const {
-    allowed,
-    loadingBoot,
-    precoPadrao,
-    precoHoje,
-    atualizarPreco, // alias do hook
-    updatingPreco,
-    relHoje,
-    loadingHoje,
-    relData,
-    loadingData,
-    loadPorData,
-    relIntervalo,
-    loadingIntervalo,
-    loadIntervalo,
-    relMensal,
-    loadingMensal,
-    loadMensal,
-    listaHoje,
-    loadingListaHoje,
-    listaData,
-    loadingListaData,
-    loadListaPorData,
-    toast,
-    setToast,
-    tone,
-    today,
-  } = useAlmoco();
-
-  const [openPreco, setOpenPreco] = React.useState(false);
-  const [section, setSection] = React.useState("hoje"); // hoje | por-data | intervalo | mensal
-  const [navOpen, setNavOpen] = React.useState(true);
-
-  // boot dos dados mensais
-  React.useEffect(() => {
-    const now = new Date();
-    loadMensal?.(
-      now.getFullYear(),
-      now.toLocaleString("pt-PT", { month: "long" })
-    );
-  }, [loadMensal]);
-
-  const linhasMensal = React.useMemo(
-    () =>
-      Array.isArray(relMensal?.porTurma)
-        ? [...relMensal.porTurma].sort(ordenarTurmas)
-        : [],
-    [relMensal]
-  );
-
-  const totalMensal = React.useMemo(
-    () => Number(relMensal?.totalGeral?.total_arrecadado || 0),
-    [relMensal]
-  );
-
-  /* ============= estados de carregamento/perm ============= */
-  if (loadingBoot) {
+  if (!canView) {
     return (
-      <main className="min-h-screen grid place-items-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-12 w-12 animate-spin text-indigo-600 mx-auto" />
-          <p className="text-gray-600 dark:text-gray-400">
-            A carregar módulo Almoço...
+      <div className="p-6 flex items-center gap-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md">
+        <AlertCircle className="h-5 w-5" />
+        <div>
+          <p className="font-semibold">Não tens acesso ao módulo de almoços.</p>
+          <p className="text-xs">
+            Se achas que isto é um erro, contacta o administrador do sistema.
           </p>
         </div>
-      </main>
+      </div>
     );
   }
 
-  if (!allowed) {
-    return (
-      <main className="min-h-screen grid place-items-center p-6 bg-gray-50 dark:bg-gray-900">
-        <div className="max-w-md w-full rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-8 text-center shadow-sm">
-          <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-red-100 dark:bg-red-900/30 grid place-items-center">
-            <X className="text-red-600 dark:text-red-400" size={24} />
-          </div>
-          <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">
-            Acesso Restrito
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            Não tem permissão para aceder ao módulo Almoço.
-          </p>
-          <button
-            onClick={() => window.history.back()}
-            className="px-6 py-2 rounded-xl bg-gray-900 text-white hover:bg-gray-800 transition-colors"
-            type="button"
-          >
-            Voltar
-          </button>
-        </div>
-      </main>
-    );
-  }
-
-  /* =================== LAYOUT =================== */
   return (
-    <main className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-950 dark:to-gray-900">
-      <header className="sticky rounded-2xl top-0 z-30 border border-gray-300 dark:border-gray-800/80 backdrop-blur supports-backdrop-blur:bg-white/70 dark:supports-backdrop-blur:bg-gray-900/70 bg-white/90 dark:bg-gray-900/90">
-        <div className="mx-auto p-2 md:p-2">
-          <div className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setNavOpen((v) => !v)}
-                className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 md:hidden"
-                aria-label={navOpen ? "Esconder navegação" : "Mostrar navegação"}
-              >
-                {navOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
-              </button>
-              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white grid place-items-center shadow">
-                <Utensils size={18} />
-              </div>
-              <div>
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
-                  Almoços
-                </h1>
-                <p className="text-xs text-gray-600 dark:text-gray-400">
-                  {new Date().toLocaleDateString("pt-PT", {
-                    weekday: "long",
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-2">
-                <span className="text-xs text-indigo-700 dark:text-indigo-300">
-                  Preço hoje
-                </span>
-                <span className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
-                  {stn(precoHoje)}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpenPreco(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium"
-              >
-                <Settings size={18} /> Definir Preço
-              </button>
-            </div>
+    <div className="space-y-4">
+      {/* Cabeçalho com estado visível */}
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 bg-violet-600 p-3 rounded-2xl shadow-2xs">
+          <div className="h-10 w-10 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center">
+            <UtensilsCrossed className="h-5 w-5" />
           </div>
+          <div>
+            <h1 className="text-xl text-white font-semibold">
+              Módulo de Almoços
+            </h1>
+            <p className="text-xs text-white">
+              Gestão de preço, marcações e relatórios de refeições.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          {loading ? (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+              <RefreshCw className="h-3 w-3 animate-spin" />A sincronizar dados…
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              ●<span>Sistema atualizado</span>
+            </span>
+          )}
         </div>
       </header>
 
-      {/* ======== LAYOUT: sidebar + conteúdo ======== */}
-      <div className="mx-auto p-2 md:px-4 py-4 grid lg:grid-cols-12 gap-6">
-        {/* Sidebar */}
-        <aside
-          className={`lg:col-span-3 transition-all ${
-            navOpen
-              ? "max-h-[1200px] opacity-100"
-              : "max-h-0 opacity-0 md:opacity-100 md:max-h-[1200px]"
-          } md:max-h-none overflow-hidden md:overflow-visible`}
-        >
-          <div className="space-y-6">
-            {/* Resumo rápido */}
-            <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-                Resumo rápido
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                <Stat
-                  title="Preço padrão"
-                  value={stn(precoPadrao)}
-                  icon={<PiggyBank size={16} className="text-amber-600" />}
-                />
-                <Stat
-                  title="Total hoje"
-                  value={
-                    loadingHoje
-                      ? "..."
-                      : stn(relHoje?.totais?.total_arrecadado || 0)
-                  }
-                  icon={<Coins size={16} className="text-emerald-600" />}
-                />
-                <Stat
-                  title="Almoços hoje"
-                  value={
-                    loadingHoje ? "..." : relHoje?.totais?.total_almocos || 0
-                  }
-                  icon={<Soup size={16} className="text-indigo-600" />}
-                />
-                <Stat
-                  title="Mês atual"
-                  value={stn(totalMensal)}
-                  icon={<FileBarChart size={16} className="text-sky-600" />}
-                />
-              </div>
-            </div>
-
-            {/* Ações + Navegação */}
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-gray-300 dark:text-white bg-white dark:bg-blue-800 p-2">
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 px-2">
-                  Ações
-                </h2>
-                {/* aqui podes meter botões rápidos (hoje, export, etc) se quiseres */}  
-              </div>
-
-              {/* Navegação (vertical) */}
-              <nav className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2">
-                {[
-                  { key: "hoje", label: "Hoje", icon: <CalendarDays size={16} /> },
-                  {
-                    key: "por-data",
-                    label: "Por Data",
-                    icon: <CalendarRange size={16} />,
-                  },
-                  {
-                    key: "intervalo",
-                    label: "Intervalo",
-                    icon: <FileBarChart size={16} />,
-                  },
-                  {
-                    key: "mensal",
-                    label: "Mensal",
-                    icon: <Coins size={16} />,
-                  },
-                ].map((i) => {
-                  const active = i.key === section;
-                  return (
-                    <button
-                      key={i.key}
-                      type="button"
-                      onClick={() => setSection(i.key)}
-                      className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-xl transition-colors ${
-                        active
-                          ? "bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-white"
-                          : "text-gray-800 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                      }`}
-                    >
-                      {i.icon}
-                      <span className="text-sm font-medium">{i.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
+      {error && (
+        <div className="border border-red-300 bg-red-50 text-red-700 text-xs px-3 py-2 rounded flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-[1px]" />
+          <div>
+            <p className="font-semibold">Ocorreu um erro.</p>
+            <p>{String(error)}</p>
+            <p className="mt-1 text-[14px] text-red-600/80">
+              Tenta recarregar a página. Se o problema continuar, regista este
+              texto para apoio técnico.
+            </p>
           </div>
-        </aside>
+        </div>
+      )}
 
-        {/* Conteúdo */}
-        <section className="lg:col-span-9 space-y-6">
-          {/* HOJE */}
-          {section === "hoje" && (
-            <>
-              <div className="rounded-2xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white">
-                      Almoços de Hoje
-                    </h2>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Lista de marcações do dia e totais
-                    </p>
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">
-                    Registos: <b>{listaHoje.length}</b>
-                  </div>
-                </div>
-              </div>
-
-              <DataTable
-                title="Detalhes de Hoje"
-                rows={listaHoje}
-                loading={loadingListaHoje}
-              />
-            </>
-          )}
-
-          {/* POR DATA */}
-          {section === "por-data" && (
-            <>
-              <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <CalendarRange className="text-emerald-600" />
-                    <h2 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white">
-                      Relatório por Data
-                    </h2>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <Formik
-                    initialValues={{ d: today() }}
-                    onSubmit={(v) => {
-                      if (!v?.d) return;
-                      loadPorData(v.d);
-                      loadListaPorData(v.d);
-                    }}
-                  >
-                    {({ submitForm, setFieldValue }) => (
-                      <Form className="flex flex-col sm:flex-row items-end gap-3">
-                        <div className="flex-1">
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Selecionar data
-                          </label>
-                          <Field
-                            name="d"
-                            type="date"
-                            className="block w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                            onChange={(e) => {
-                              setFieldValue("d", e.target.value);
-                              submitForm();
-                            }}
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={loadingData || loadingListaData}
-                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium disabled:opacity-50"
-                        >
-                          {loadingData || loadingListaData ? (
-                            <Loader2 size={18} className="animate-spin" />
-                          ) : (
-                            "Gerar"
-                          )}
-                        </button>
-                      </Form>
-                    )}
-                  </Formik>
-
-                  {relData && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Badge
-                        icon={
-                          <CalendarDays
-                            size={16}
-                            className="text-emerald-600"
-                          />
-                        }
-                      >
-                        Data: <b>{relData.date}</b>
-                      </Badge>
-                      <Badge
-                        icon={
-                          <Soup size={16} className="text-emerald-600" />
-                        }
-                      >
-                        Almoços: <b>{relData.total_almocos}</b>
-                      </Badge>
-                      <Badge
-                        icon={
-                          <Coins size={16} className="text-emerald-600" />
-                        }
-                      >
-                        Arrecadado:{" "}
-                        <b>{stn(relData.total_arrecadado)}</b>
-                      </Badge>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <DataTable
-                title="Detalhes da Data"
-                rows={listaData}
-                loading={loadingListaData}
-              />
-            </>
-          )}
-
-          {/* INTERVALO */}
-          {section === "intervalo" && (
-            <>
-              <div className="rounded-2xl border border-sky-200 dark:border-sky-800 bg-sky-50/50 dark:bg-sky-900/10 p-4">
-                <div className="flex items-center gap-2">
-                  <FileBarChart className="text-sky-600" />
-                  <h2 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white">
-                    Relatório por Intervalo
-                  </h2>
-                </div>
-
-                <div className="mt-4">
-                  <Formik
-                    initialValues={{ ini: today(), fim: today() }}
-                    onSubmit={(v) => loadIntervalo(v.ini, v.fim)}
-                  >
-                    {({ isSubmitting }) => (
-                      <Form className="grid gap-3 md:grid-cols-[1fr_1fr_auto] items-end">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Data inicial
-                          </label>
-                          <Field
-                            name="ini"
-                            type="date"
-                            className="block w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Data final
-                          </label>
-                          <Field
-                            name="fim"
-                            type="date"
-                            className="block w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={loadingIntervalo || isSubmitting}
-                          className="h-[44px] px-5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-medium disabled:opacity-50"
-                        >
-                          {loadingIntervalo ? (
-                            <Loader2
-                              size={18}
-                              className="animate-spin mx-auto"
-                            />
-                          ) : (
-                            "Gerar"
-                          )}
-                        </button>
-                      </Form>
-                    )}
-                  </Formik>
-
-                  <div className="mt-4">
-                    {relIntervalo ? (
-                      <div className="flex flex-wrap gap-2">
-                        <Badge
-                          icon={
-                            <CalendarRange
-                              size={16}
-                              className="text-sky-600"
-                            />
-                          }
-                        >
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            Período
-                          </span>
-                          <span className="font-semibold text-gray-900 dark:text-white ml-2">
-                            {relIntervalo.inicio} → {relIntervalo.fim}
-                          </span>
-                        </Badge>
-                        <Badge
-                          icon={
-                            <Soup size={16} className="text-sky-600" />
-                          }
-                        >
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            Total almoços
-                          </span>
-                          <span className="font-semibold text-gray-900 dark:text-white ml-2">
-                            {relIntervalo.total_almocos}
-                          </span>
-                        </Badge>
-                        <Badge
-                          icon={
-                            <Coins size={16} className="text-sky-600" />
-                          }
-                        >
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            Total arrecadado
-                          </span>
-                          <span className="font-semibold text-gray-900 dark:text-white ml-2">
-                            {stn(
-                              relIntervalo.total_arrecadado ??
-                                relIntervalo.total ??
-                                relIntervalo.total_almocado
-                            )}
-                          </span>
-                        </Badge>
-                      </div>
-                    ) : (
-                      <EmptyHint
-                        icon={
-                          <FileBarChart
-                            size={48}
-                            className="mx-auto opacity-50"
-                          />
-                        }
-                        title="Selecione um intervalo"
-                        subtitle="Defina as datas para ver os totais."
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* MENSAL */}
-          {section === "mensal" && (
-            <>
-              <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-900/10 p-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Coins className="text-amber-600" />
-                    <h2 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-white">
-                      Relatório Mensal
-                    </h2>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => relMensal && window.print()}
-                      disabled={!relMensal}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 print:hidden"
-                      title="Imprimir relatório"
-                    >
-                      <Printer size={16} />
-                      <span className="hidden sm:inline">Imprimir</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        relMensal &&
-                        exportCSV(linhasMensal, {
-                          ano: relMensal.ano,
-                          mes: relMensal.mes,
-                        })
-                      }
-                      disabled={!relMensal}
-                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                    >
-                      <FileDown size={16} />
-                      <span className="hidden sm:inline">Exportar CSV</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <Formik
-                    initialValues={{
-                      ano: new Date().getFullYear(),
-                      mes: new Date().toLocaleString("pt-PT", {
-                        month: "long",
-                      }),
-                    }}
-                    onSubmit={(v) => loadMensal(v.ano, v.mes)}
-                  >
-                    {({ isSubmitting }) => (
-                      <Form className="grid gap-3 md:grid-cols-[160px_200px_auto] items-end">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Ano
-                          </label>
-                          <Field
-                            name="ano"
-                            type="number"
-                            className="block w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Mês
-                          </label>
-                          <Field
-                            as="select"
-                            name="mes"
-                            className="block w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-2.5 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                          >
-                            {[
-                              "janeiro",
-                              "fevereiro",
-                              "março",
-                              "abril",
-                              "maio",
-                              "junho",
-                              "julho",
-                              "agosto",
-                              "setembro",
-                              "outubro",
-                              "novembro",
-                              "dezembro",
-                            ].map((m) => (
-                              <option key={m} value={m}>
-                                {m.charAt(0).toUpperCase() + m.slice(1)}
-                              </option>
-                            ))}
-                          </Field>
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={loadingMensal || isSubmitting}
-                          className="h-[44px] px-5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-medium disabled:opacity-50"
-                        >
-                          {loadingMensal ? (
-                            <Loader2
-                              size={18}
-                              className="animate-spin mx-auto"
-                            />
-                          ) : (
-                            "Gerar"
-                          )}
-                        </button>
-                      </Form>
-                    )}
-                  </Formik>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-5">
-                {relMensal ? (
-                  <>
-                    <div className="mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                        Almoços de {relMensal.mes} de {relMensal.ano}
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Resumo financeiro por turma
-                      </p>
-                    </div>
-
-                    <div className="overflow-auto rounded-xl border border-gray-200 dark:border-gray-700">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 dark:bg-gray-700/50">
-                          <tr className="text-left text-gray-700 dark:text-gray-300">
-                            <th className="px-6 py-4 font-semibold w-24">
-                              Ano
-                            </th>
-                            <th className="px-6 py-4 font-semibold">Turma</th>
-                            <th className="px-6 py-4 font-semibold">
-                              Nº de Almoços
-                            </th>
-                            <th className="px-6 py-4 font-semibold text-right">
-                              Valor por Turma
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                          {linhasMensal.length ? (
-                            linhasMensal.map((r, idx) => (
-                              <tr
-                                key={(r.turma || "-") + idx}
-                                className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-                              >
-                                <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">
-                                  {getAnoFromTurma(r.turma)}
-                                </td>
-                                <td className="px-6 py-4">
-                                  {r.turma ? (
-                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                      {r.turma}
-                                    </span>
-                                  ) : (
-                                    "-"
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 text-gray-600 dark:text-gray-400">
-                                  {Number(r.qtd || 0)}
-                                </td>
-                                <td className="px-6 py-4 text-right font-mono text-gray-900 dark:text-white">
-                                  {stn(r.total || 0)}
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={4} className="px-6 py-12">
-                                <EmptyHint
-                                  title="Sem dados"
-                                  subtitle="Não existem almoços registados para este mês."
-                                />
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                        {linhasMensal.length > 0 && (
-                          <tfoot className="bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
-                            <tr className="font-semibold text-gray-900 dark:text-white">
-                              <td className="px-6 py-4" colSpan={3}>
-                                Valor total do mês
-                              </td>
-                              <td className="px-6 py-4 text-right font-mono">
-                                {stn(totalMensal)}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        )}
-                      </table>
-                    </div>
-                  </>
-                ) : (
-                  <EmptyHint
-                    icon={<Coins size={48} className="mx-auto opacity-50" />}
-                    title="Selecione o ano e o mês"
-                  />
-                )}
-              </div>
-            </>
-          )}
-        </section>
+      {/* Abas */}
+      <div className="border-b border-gray-200 flex items-center gap-2 text-sm">
+        <button
+          type="button"
+          onClick={() => setActiveTab("config")}
+          className={`inline-flex items-center gap-2 px-3 py-2 border-b-2 text-xs md:text-sm ${
+            activeTab === "config"
+              ? "border-violet-600 text-violet-700 font-medium"
+              : "border-transparent text-gray-900 hover:text-violet-600 hover:border-violet-200"
+          }`}
+        >
+          <Settings2 className="h-4 w-4" />
+          <span>Configuração</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("marcacoes")}
+          className={`inline-flex items-center gap-2 px-3 py-2 border-b-2 text-xs md:text-sm ${
+            activeTab === "marcacoes"
+              ? "border-violet-600 text-violet-700 font-medium"
+              : "border-transparent text-gray-900 hover:text-violet-600 hover:border-violet-200"
+          }`}
+        >
+          <CalendarRange className="h-4 w-4" />
+          <span>Marcações</span>
+          <span className="ml-1 rounded-full bg-gray-100 text-[10px] px-1.5 py-[1px] text-gray-900">
+            {totalMarcacoes}
+          </span>
+        </button>
+        {canViewReports && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("relatorios")}
+            className={`inline-flex items-center gap-2 px-3 py-2 border-b-2 text-xs md:text-sm ${
+              activeTab === "relatorios"
+                ? "border-violet-600 text-violet-700 font-medium"
+                : "border-transparent text-gray-900 hover:text-violet-600 hover:border-violet-200"
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            <span>Relatórios</span>
+          </button>
+        )}
       </div>
 
-      {/* Modal de Preço */}
-      <Modal
-        open={openPreco}
-        onClose={() => setOpenPreco(false)}
-        title="Definir Preço do Almoço"
-        size="md"
-      >
-        <Formik
-          enableReinitialize
-          initialValues={{
-            preco: Number(precoPadrao || 0).toFixed(2),
-            aplicarHoje: true,
-          }}
-          onSubmit={async (v, { setSubmitting }) => {
-            await atualizarPreco(Number(v.preco || 0), {
-              // alinhar com hook: aplicarNoDia → aplicar_no_dia no backend
-              aplicarNoDia: !!v.aplicarHoje,
-            });
-            setSubmitting(false);
-            setOpenPreco(false);
-          }}
-        >
-          {({ isSubmitting }) => (
-            <Form className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Preço padrão (STN)
-                </label>
-                <Field
-                  name="preco"
+      {/* ABA: Configuração */}
+      {activeTab === "config" && (
+        <section className="border rounded-xl p-4 md:p-5 space-y-4 bg-white shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <Settings2 className="h-4 w-4 text-violet-600" />
+                Configuração de preço
+              </h2>
+              <p className="text-[14px] text-gray-900 mt-1">
+                Define o preço padrão aplicado aos almoços. Alterações futuras
+                não afetam registos antigos.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={reloadPreco}
+              className="inline-flex items-center gap-1 border rounded-full px-3 py-1 text-[12px] hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Recarregar
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm">
+              <span className="text-gray-900">Preço padrão atual: </span>
+              <span className="font-semibold text-violet-700">
+                {precoPadrao != null
+                  ? `${Number(precoPadrao).toFixed(2)} STN`
+                  : "— não definido"}
+              </span>
+            </div>
+          </div>
+
+          {canEdit ? (
+            <form
+              onSubmit={handleUpdatePreco}
+              className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end"
+            >
+              <div className="flex-1 space-y-1">
+                <label className="text-xs font-medium">Novo preço</label>
+                <input
                   type="number"
                   step="0.01"
                   min="0"
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="border rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-violet-300"
+                  placeholder="Ex.: 25.00"
+                  value={novoPreco}
+                  onChange={(e) => setNovoPreco(e.target.value)}
+                />
+               
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-2 text-xs md:text-sm rounded-lg border border-violet-600 bg-violet-600 text-white hover:bg-violet-700 hover:border-violet-700 disabled:opacity-60"
+                disabled={saving}
+              >
+                {saving ? "A guardar…" : "Guardar novo preço"}
+              </button>
+            </form>
+          ) : (
+            <div className="mt-2 flex items-start gap-2 text-xs text-gray-900">
+              <Info className="h-4 w-4 mt-[2px]" />
+              <p>Não tens permissão para alterar o preço de almoços.</p>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ABA: Marcações */}
+      {activeTab === "marcacoes" && (
+        <section className="space-y-4">
+          {/* Barra de filtros e ações */}
+          <div className="border rounded-xl p-3 md:p-4 bg-white shadow-sm flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <CalendarRange className="h-4 w-4 text-violet-600" />
+                Marcações de almoço
+              </h2>
+              <p className="text-[14px] text-gray-900">
+                Consulta e regista refeições marcadas por data. Usa os filtros
+                para localizar rapidamente.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 items-center text-xs">
+              <form
+                onSubmit={handleFiltrarMarcacoes}
+                className="flex items-center gap-2"
+              >
+                <label className="flex items-center gap-2">
+                  <Filter className="h-3 w-3 text-gray-900" />
+                  <span className="text-[14px] text-gray-900">Dia:</span>
+                  <input
+                    type="date"
+                    className="border rounded-lg px-2 py-1 text-[14px] focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    value={filtroData}
+                    onChange={(e) => setFiltroData(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full border text-[12px] hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                >
+                  Aplicar
+                </button>
+              </form>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => setMarcacaoModalOpen(true)}
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-violet-600 bg-violet-600 text-white text-[12px] hover:bg-violet-700 hover:border-violet-700"
+                >
+                  <PlusCircle className="h-3 w-3" />
+                  Nova marcação
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Lista + paginação */}
+          <div className="border rounded-xl bg-white shadow-sm overflow-hidden">
+            <div className="border-b px-3 py-2 flex items-center justify-between text-xs">
+              <span className="text-gray-900">
+                {totalMarcacoes} marcação(ões) registadas
+              </span>
+              <span className="text-[14px] text-gray-400">
+                Página {page} de {totalPages}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr className="text-left text-[14px] text-gray-900">
+                    <th className="px-3 py-2">Aluno</th>
+                    <th className="px-3 py-2">Data</th>
+                    <th className="px-3 py-2">Observação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(!paginatedMarcacoes || paginatedMarcacoes.length === 0) && (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        className="px-3 py-4 text-center text-gray-900 text-xs"
+                      >
+                        Nenhuma marcação encontrada para o filtro atual.
+                      </td>
+                    </tr>
+                  )}
+
+                  {paginatedMarcacoes.map((m, idx) => {
+                    const nomeAluno =
+                      m.aluno_nome ||
+                      m.aluno?.nome ||
+                      m.aluno?.alu_nome ||
+                      m.nome_aluno ||
+                      "";
+
+                    const data = m.data || m.data_refeicao || m.dia || "";
+
+                    return (
+                      <tr
+                        key={m.id ?? m.mar_id ?? idx}
+                        className="border-t hover:bg-violet-50/40"
+                      >
+                        <td className="px-3 py-2">{nomeAluno || "—"}</td>
+                        <td className="px-3 py-2">
+                          {data ? new Date(data).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-gray-900">
+                          {m.observacao || m.obs || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Paginação */}
+            <div className="border-t px-3 py-2 flex items-center justify-between text-[14px] text-gray-900">
+              <span>
+                A mostrar {(page - 1) * pageSize + 1}–
+                {Math.min(page * pageSize, marcacoes?.length || 0)} de{" "}
+                {marcacoes?.length || 0}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => goToPage(page - 1)}
+                  disabled={page <= 1}
+                  className="inline-flex items-center justify-center h-7 w-7 rounded border text-gray-900 disabled:opacity-40 hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                </button>
+                <span>
+                  {page} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => goToPage(page + 1)}
+                  disabled={page >= totalPages}
+                  className="inline-flex items-center justify-center h-7 w-7 rounded border text-gray-900 disabled:opacity-40 hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                >
+                  <ChevronRight className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-[14px] text-gray-900 flex items-start gap-2">
+            <Info className="h-3 w-3 mt-[2px]" />
+            <p>
+              Dica: filtra por data para reduzir a lista e encontrar rapidamente
+              marcações específicas.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* ABA: Relatórios */}
+      {activeTab === "relatorios" && canViewReports && (
+        <section className="space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <FileText className="h-4 w-4 text-violet-600" />
+                Relatórios de almoços
+              </h2>
+              <p className="text-[14px] text-gray-900 mt-1">
+                Gera resumos diários, por data, intervalo e mês para apoiar
+                controlo e tomada de decisão.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Hoje */}
+            <div className="border rounded-xl p-3 bg-white shadow-sm space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold flex items-center gap-2">
+                  <CalendarRange className="h-3 w-3 text-violet-600" />
+                  Hoje
+                </span>
+                <button
+                  type="button"
+                  onClick={loadRelatorioHoje}
+                  className="inline-flex items-center gap-1 border rounded-full px-3 py-1 text-[14px] hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                >
+                  Carregar
+                </button>
+              </div>
+              {relatorioHoje && <ReportView data={relatorioHoje} />}
+              {!relatorioHoje && (
+                <p className="text-[14px] text-gray-900">
+                  Ainda não carregaste o relatório de hoje.
+                </p>
+              )}
+            </div>
+
+            {/* Por data */}
+            <div className="border rounded-xl p-3 bg-white shadow-sm space-y-2">
+              <form
+                onSubmit={handleRelatorioPorData}
+                className="flex items-center justify-between gap-2"
+              >
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-semibold">Por data</span>
+                  <input
+                    type="date"
+                    className="border rounded-lg px-2 py-1 text-[14px] focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    value={dataRelatorio}
+                    onChange={(e) => setDataRelatorio(e.target.value)}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1 border rounded-full px-3 py-1 text-[14px] hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                >
+                  Carregar
+                </button>
+              </form>
+              {relatorioPorData && <ReportView data={relatorioPorData} />}
+            </div>
+
+            {/* Intervalo */}
+            <div className="border rounded-xl p-3 bg-white shadow-sm space-y-2">
+              <form
+                onSubmit={handleRelatorioIntervalo}
+                className="flex flex-col gap-2 text-xs"
+              >
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="font-semibold">Por intervalo</span>
+                  <input
+                    type="date"
+                    className="border rounded-lg px-2 py-1 text-[14px] focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    value={intervaloInicio}
+                    onChange={(e) => setIntervaloInicio(e.target.value)}
+                  />
+                  <span>-</span>
+                  <input
+                    type="date"
+                    className="border rounded-lg px-2 py-1 text-[14px] focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    value={intervaloFim}
+                    onChange={(e) => setIntervaloFim(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[14px] text-gray-900">
+                    Útil para fechar semana ou período específico.
+                  </span>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1 border rounded-full px-3 py-1 text-[14px] hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                  >
+                    Carregar
+                  </button>
+                </div>
+              </form>
+              {relatorioIntervalo && <ReportView data={relatorioIntervalo} />}
+            </div>
+
+            {/* Mensal */}
+            <div className="border rounded-xl p-3 bg-white shadow-sm space-y-2">
+              <form
+                onSubmit={handleRelatorioMensal}
+                className="flex flex-col gap-2 text-xs"
+              >
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="font-semibold">Mensal</span>
+                  <input
+                    type="number"
+                    className="border rounded-lg px-2 py-1 text-[14px] w-20 focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    placeholder="Ano"
+                    value={anoMensal}
+                    onChange={(e) => setAnoMensal(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    className="border rounded-lg px-2 py-1 text-[14px] w-24 focus:outline-none focus:ring-2 focus:ring-violet-200"
+                    placeholder="Mês (1-12 ou 'set')"
+                    value={mesMensal}
+                    onChange={(e) => setMesMensal(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[14px] text-gray-900">
+                    Aceita número ou nome abreviado do mês.
+                  </span>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1 border rounded-full px-3 py-1 text-[14px] hover:bg-violet-50 hover:border-violet-200 hover:text-violet-700"
+                  >
+                    Carregar
+                  </button>
+                </div>
+              </form>
+              {relatorioMensal && <ReportView data={relatorioMensal} />}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* MODAL DE MARCAÇÃO */}
+      {marcacaoModalOpen && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-4 md:p-5 space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <PlusCircle className="h-4 w-4 text-violet-600" />
+                  Nova marcação de almoço
+                </h3>
+                <p className="text-[14px] text-gray-900 mt-1">
+                  Regista uma refeição para um aluno numa data específica.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMarcacaoModalOpen(false)}
+                className="h-7 w-7 inline-flex items-center justify-center rounded-full border border-gray-200 text-gray-900 hover:bg-gray-100"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleCriarMarcacao} className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-medium">ID do aluno</label>
+                <input
+                  type="number"
+                  name="aluno_id"
+                  className="border rounded-lg px-3 py-2 w-full text-xs focus:outline-none focus:ring-2 focus:ring-violet-200"
+                  value={marcacaoForm.aluno_id}
+                  onChange={handleChangeMarcacao}
                   required
                 />
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Preço atual para hoje: <b>{stn(precoHoje)}</b>
+                <p className="text-[14px] text-gray-900">
+                  Usa o ID do aluno tal como está registado no sistema.
                 </p>
               </div>
 
-              <label className="flex items-center gap-3 p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors cursor-pointer">
-                <Field
-                  type="checkbox"
-                  name="aplicarHoje"
-                  className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+              <div className="space-y-1">
+                <label className="font-medium">Data</label>
+                <input
+                  type="date"
+                  name="data"
+                  className="border rounded-lg px-3 py-2 w-full text-xs focus:outline-none focus:ring-2 focus:ring-violet-200"
+                  value={marcacaoForm.data}
+                  onChange={handleChangeMarcacao}
+                  required
                 />
-                <div>
-                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Aplicar também para hoje
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Atualiza imediatamente o preço para os almoços de hoje
-                  </div>
-                </div>
-              </label>
+              </div>
 
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="space-y-1">
+                <label className="font-medium">Observação (opcional)</label>
+                <textarea
+                  name="observacao"
+                  rows={3}
+                  className="border rounded-lg px-3 py-2 w-full text-xs resize-none focus:outline-none focus:ring-2 focus:ring-violet-200"
+                  value={marcacaoForm.observacao}
+                  onChange={handleChangeMarcacao}
+                  placeholder="Ex.: dieta especial, isenção, etc."
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
                 <button
                   type="button"
-                  onClick={() => setOpenPreco(false)}
-                  className="px-6 py-3 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  onClick={() => setMarcacaoModalOpen(false)}
+                  className="px-3 py-1.5 rounded-lg border text-[14px] text-gray-900 hover:bg-gray-100"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting || updatingPreco}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-lg border border-violet-600 bg-violet-600 text-white text-[14px] hover:bg-violet-700 hover:border-violet-700 disabled:opacity-60"
+                  disabled={saving}
                 >
-                  {isSubmitting || updatingPreco ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <Settings size={18} />
-                  )}
-                  Guardar Preço
+                  {saving ? "A marcar…" : "Guardar marcação"}
                 </button>
               </div>
-            </Form>
-          )}
-        </Formik>
-      </Modal>
-
-      <Toast msg={toast} tone={tone} onClose={() => setToast("")} />
-
-      {/* Estilos utilitários e impressão */}
-      <style>{`
-        .btn-soft { 
-          display:flex; align-items:center; gap:.5rem; 
-          padding:.6rem .8rem; border-radius: .75rem;
-          border: 1px solid var(--tw-color-gray-200);
-        }
-        .dark .btn-soft { border-color: rgb(55 65 81); }
-        .btn-soft:hover { background: rgb(249 250 251); }
-        .dark .btn-soft:hover { background: rgb(55 65 81 / .6); }
-        @media print {
-          @page { margin: 14mm; }
-          body { background: white !important; }
-          header, .print\\:hidden, button { display: none !important; }
-          .rounded-2xl { border-radius: 0 !important; }
-          .shadow-sm { box-shadow: none !important; }
-        }
-      `}</style>
-    </main>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
