@@ -8,6 +8,7 @@ export function useDashboard() {
   const [types, setTypes] = useState([])
   const [categories, setCategories] = useState([])
   const [movements, setMovements] = useState([])
+  const [sales, setSales] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
@@ -17,23 +18,30 @@ export function useDashboard() {
     setLoading(true)
     setError(null)
     try {
-      const [usersRes, materialsRes, typesRes, categoriesRes, movementsRes] = await Promise.all([
+      const [
+        usersRes,
+        materialsRes,
+        typesRes,
+        categoriesRes,
+        movementsRes,
+        salesRes,
+      ] = await Promise.all([
         api.get("/users"),
         api.get("/materiais"),
         api.get("/tipos"),
         api.get("/categorias"),
         api.get("/movimentacoes"),
+        api.get("/vendas"),
       ])
 
-      // Materiais e movimentações podem vir em { data: [...] } ou direto
-      const mats = Array.isArray(materialsRes?.data) ? materialsRes.data : (materialsRes?.data?.data || [])
-      const movs = Array.isArray(movementsRes?.data) ? movementsRes.data : (movementsRes?.data?.data || [])
+      const arr = (r) => (Array.isArray(r?.data) ? r.data : r?.data?.data || [])
 
-      setUsers(Array.isArray(usersRes?.data) ? usersRes.data : (usersRes?.data?.data || []))
-      setMaterials(mats)
-      setTypes(Array.isArray(typesRes?.data) ? typesRes.data : (typesRes?.data?.data || []))
-      setCategories(Array.isArray(categoriesRes?.data) ? categoriesRes.data : (categoriesRes?.data?.data || []))
-      setMovements(movs)
+      setUsers(arr(usersRes))
+      setMaterials(arr(materialsRes))
+      setTypes(arr(typesRes))
+      setCategories(arr(categoriesRes))
+      setMovements(arr(movementsRes))
+      setSales(arr(salesRes))
       setLastUpdated(new Date())
     } catch (err) {
       console.error("Erro ao buscar dados do dashboard:", err)
@@ -46,8 +54,7 @@ export function useDashboard() {
   // evitar duplo fetch no StrictMode (dev)
   const didFetchRef = useRef(false)
   useEffect(() => {
-    // eslint-disable-next-line no-undef
-    if (process.env.NODE_ENV !== "production") {
+    if (import.meta.env.MODE !== "production") {
       if (didFetchRef.current) return
       didFetchRef.current = true
     }
@@ -80,28 +87,42 @@ export function useDashboard() {
 
     const inventoryTrend = totalEntradas - totalSaidas
 
-    const totalVendas = movements
-      .filter((m) => m.mov_tipo === "saida" && m.mov_motivo === "venda")
-      .reduce((s, m) => s + Number(m.mov_valor || 0), 0)
+    const sales7d = sales.filter((v) => {
+      const dt = v.ven_data || v.ven_date || v.data || v.created_at || v.updated_at
+      const d = new Date(dt)
+      return !Number.isNaN(d.getTime()) && d >= last7
+    })
+    const receita7d = sales7d.reduce((s, v) => s + Number(v.ven_total ?? v.total ?? 0), 0)
+    const numVendas7d = sales7d.length
+    const receitaTotal = sales.reduce((s, v) => s + Number(v.ven_total ?? v.total ?? 0), 0)
+    const numVendas = sales.length
 
     const lowStockMaterials = materials.filter(
       (m) => Number(m.mat_quantidade_estoque) < Number(m.mat_estoque_minimo)
     ).length
 
-    return { totalEntradas, totalSaidas, inventoryTrend, totalVendas, lowStockMaterials }
-  }, [loading, movements, materials])
+    return {
+      totalEntradas,
+      totalSaidas,
+      inventoryTrend,
+      lowStockMaterials,
+      receita7d,
+      numVendas7d,
+      receitaTotal,
+      numVendas,
+    }
+  }, [loading, movements, materials, sales])
 
   // -------------------- dados para gráficos --------------------
   const chartData = useMemo(() => {
-    if (loading) return { movementData: [], categoryData: [] }
+    if (loading) return { movementData: [], categoryData: [], salesByDay: [] }
 
-    // agrupa por dia
+    // Movimentações por dia
     const byDate = new Map()
     movements.forEach((mov) => {
       const d = new Date(mov.mov_data)
       if (Number.isNaN(d.getTime())) return
-      // chave yyyy-mm-dd para ordenação estável
-      const key = d.toISOString().slice(0, 10)
+      const key = d.toISOString().slice(0, 10) // yyyy-mm-dd
       const slot = byDate.get(key) || { date: key, entrada: 0, saida: 0 }
       if (mov.mov_tipo === "entrada") slot.entrada += Number(mov.mov_quantidade || 0)
       if (mov.mov_tipo === "saida") slot.saida += Number(mov.mov_quantidade || 0)
@@ -112,19 +133,21 @@ export function useDashboard() {
       .slice(-10)
       .map((x) => ({
         ...x,
-        // Mostra pt-PT no eixo mas mantém a ordenação por ISO no sort acima
         date: new Date(x.date + "T00:00:00").toLocaleDateString("pt-PT"),
         total: (x.entrada || 0) - (x.saida || 0),
       }))
 
-    // distribuição por categoria (conta materiais por categoria via tipo->categoria)
+    // Distribuição por categoria (liga material->tipo->categoria)
     const categoryMap = new Map()
     categories.forEach((c) => {
-      categoryMap.set(c.cat_id, { name: c.cat_nome, value: 0 })
+      const id = Number(c.cat_id ?? c.categoria_id ?? c.id)
+      const nome = c.cat_nome ?? c.categoria_nome ?? c.nome ?? "Sem categoria"
+      if (!Number.isNaN(id)) categoryMap.set(id, { name: nome, value: 0 })
     })
     materials.forEach((m) => {
-      const t = types.find((tt) => Number(tt.tipo_id) === Number(m.mat_fk_tipo))
-      const catId = t?.tipo_fk_categoria
+      const tipoId = Number(m.mat_fk_tipo ?? m.tipo_id)
+      const t = types.find((tt) => Number(tt.tipo_id ?? tt.id) === tipoId)
+      const catId = Number(t?.tipo_fk_categoria ?? t?.categoria_id)
       if (categoryMap.has(catId)) {
         categoryMap.get(catId).value += 1
       }
@@ -134,19 +157,31 @@ export function useDashboard() {
       .map((c) => ({ ...c, percentage: Math.round((c.value / totalMats) * 100) }))
       .sort((a, b) => b.value - a.value)
 
-    return { movementData, categoryData }
-  }, [loading, movements, materials, types, categories])
+    // Vendas por dia
+    const bySaleDate = new Map()
+    sales.forEach((v) => {
+      const dt = v.ven_data || v.ven_date || v.data || v.created_at || v.updated_at
+      const d = new Date(dt)
+      if (Number.isNaN(d.getTime())) return
+      const key = d.toISOString().slice(0, 10)
+      const slot = bySaleDate.get(key) || { date: key, vendas: 0, receita: 0 }
+      slot.vendas += 1
+      slot.receita += Number(v.ven_total ?? v.total ?? 0)
+      bySaleDate.set(key, slot)
+    })
+    const salesByDay = Array.from(bySaleDate.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-10)
+      .map((x) => ({ ...x, date: new Date(x.date + "T00:00:00").toLocaleDateString("pt-PT") }))
+
+    return { movementData, categoryData, salesByDay }
+  }, [loading, movements, materials, types, categories, sales])
 
   // -------------------- cards --------------------
   const cards = useMemo(() => {
     if (loading) return []
     return [
-      {
-        label: "Utilizadores",
-        value: users.length,
-        tone: "blue",
-        iconName: "Users",
-      },
+      { label: "Utilizadores", value: users.length, tone: "blue", iconName: "Users" },
       {
         label: "Materiais",
         value: materials.length,
@@ -154,18 +189,8 @@ export function useDashboard() {
         tone: "emerald",
         iconName: "PackageCheck",
       },
-      {
-        label: "Tipos",
-        value: types.length,
-        tone: "amber",
-        iconName: "Layers",
-      },
-      {
-        label: "Categorias",
-        value: categories.length,
-        tone: "pink",
-        iconName: "Shapes",
-      },
+      { label: "Tipos", value: types.length, tone: "amber", iconName: "Layers" },
+      { label: "Categorias", value: categories.length, tone: "pink", iconName: "Shapes" },
       {
         label: "Movimentações",
         value: movements.length,
@@ -173,38 +198,19 @@ export function useDashboard() {
         tone: "indigo",
         iconName: "RefreshCw",
       },
-      {
-        label: "Total em Vendas",
-        value: `STN ${Number(metrics.totalVendas || 0).toFixed(2)}`,
-        tone: "purple",
-        iconName: "FileText",
-      },
+      { label: "Vendas (7d)", value: metrics.numVendas7d ?? 0, tone: "violet", iconName: "FileText" },
+      { label: "Receita (7d)", value: `STN ${Number(metrics.receita7d || 0).toFixed(2)}`, tone: "purple", iconName: "FileText" },
+      { label: "Receita Total", value: `STN ${Number(metrics.receitaTotal || 0).toFixed(2)}`, tone: "fuchsia", iconName: "FileText" },
     ]
   }, [loading, users.length, materials.length, types.length, categories.length, movements.length, metrics])
 
-  // paleta para o gráfico de pizza
+  // paleta para gráficos de pizza (UI)
   const COLORS = ["#8884d8", "#82ca9d", "#ffc658", "#ff8042", "#0088fe", "#00C49F", "#FFBB28", "#FF8042"]
 
   return {
-    // estado base
-    loading,
-    error,
-    lastUpdated,
-
-    // dados
-    users,
-    materials,
-    types,
-    categories,
-    movements,
-
-    // derivados
-    metrics,
-    chartData,
-    cards,
-    COLORS,
-
-    // ações
+    loading, error, lastUpdated,
+    users, materials, types, categories, movements, sales,
+    metrics, chartData, cards, COLORS,
     refresh,
   }
 }

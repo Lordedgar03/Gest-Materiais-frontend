@@ -1,51 +1,107 @@
+// src/pages/Materials.jsx
 "use client";
 
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
-  XCircle,
-  ArrowLeft,
-  ArrowRight,
-  PackageCheck,
   Trash2,
   Pencil,
   Loader2,
   AlertCircle,
   Search,
   Shield,
-  EyeOff,
-  Package,
   TrendingDown,
   TrendingUp,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
-  FilterX,
+  ArrowLeft,
+  ArrowRight,
+  X,
+  FileUp,
+  FileText,
 } from "lucide-react";
 import { useMaterials } from "../hooks/useMaterials";
 
-/* ---------- Generic Modal ---------- */
+/* =================== helpers =================== */
+const money = (n) =>
+  Number(n || 0).toLocaleString("pt-PT", {
+    style: "currency",
+    currency: "STN",
+    minimumFractionDigits: 2,
+  });
+
+/* =================== Toast =================== */
+function Toast({ kind = "success", title, desc, onClose }) {
+  const base =
+    "pointer-events-auto w-full max-w-sm rounded-xl border shadow-lg p-3 backdrop-blur";
+  const styles =
+    kind === "error"
+      ? "bg-rose-50/90 border-rose-200 text-rose-800"
+      : "bg-emerald-50/90 border-emerald-200 text-emerald-800";
+
+  return (
+    <div role="status" className={`${base} ${styles}`}>
+      <div className="flex gap-2">
+        {kind === "error" ? (
+          <AlertCircle className="mt-0.5" size={18} />
+        ) : (
+          <TrendingUp className="mt-0.5" size={18} />
+        )}
+        <div className="flex-1">
+          <p className="text-sm font-semibold">{title}</p>
+          {desc && <p className="text-xs opacity-90">{desc}</p>}
+        </div>
+        <button
+          onClick={onClose}
+          className="text-sm opacity-70 hover:opacity-100"
+          aria-label="Fechar"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Toasts({ items, remove }) {
+  return (
+    <div className="fixed top-4 right-4 z-[70] space-y-2">
+      {items.map((t) => (
+        <Toast
+          key={t.id}
+          kind={t.kind}
+          title={t.title}
+          desc={t.desc}
+          onClose={() => remove(t.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* =================== Modal Genérico =================== */
 function Modal({
   open,
   title,
-  onClose,
   children,
   footer,
+  onClose,
   maxWidth = "max-w-2xl",
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <div
-          className={`w-full ${maxWidth} rounded-xl bg-white shadow-xl border border-slate-200`}
+          className={`w-full ${maxWidth} rounded-2xl bg-white/90 backdrop-blur border border-slate-200 shadow-2xl`}
         >
           <div className="flex items-center justify-between p-4 border-b border-slate-200">
             <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+              className="p-2 rounded-lg hover:bg-slate-100 text-slate-600"
               aria-label="Fechar"
             >
               ×
@@ -61,10 +117,10 @@ function Modal({
   );
 }
 
-/* ---------- Material Form Modal (Create/Edit) ---------- */
+/* =================== Form (Criar/Editar) =================== */
 function MaterialFormModal({
   open,
-  mode = "create", // "create" | "edit"
+  mode,
   formId = "material-form",
   formData,
   setFormData,
@@ -72,12 +128,11 @@ function MaterialFormModal({
   types,
   canManageMaterial,
   onClose,
-  onSubmit, // use hook.handleSubmit
-  isSubmitting,
-  formErrors = {},
+  onSubmit,
+  submitting,
+  errors = {},
 }) {
   const isCreate = mode === "create";
-
   return (
     <Modal
       open={open}
@@ -85,43 +140,38 @@ function MaterialFormModal({
       title={
         <span className="inline-flex items-center gap-2">
           {isCreate ? (
-            <>
-              <Plus className="h-5 w-5 text-violet-600" />
-              Novo material
-            </>
+            <Plus className="text-violet-600" size={18} />
           ) : (
-            <>
-              <Pencil className="h-5 w-5 text-indigo-600" />
-              Editar material
-            </>
+            <Pencil className="text-indigo-600" size={18} />
           )}
+          {isCreate ? "Novo material" : "Editar material"}
         </span>
       }
       footer={
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 rounded-md border text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
+            className="px-4 py-2 rounded-md border text-slate-700 bg-white hover:bg-slate-50"
+            disabled={submitting}
           >
             Cancelar
           </button>
           <button
             type="submit"
             form={formId}
-            disabled={isSubmitting}
+            disabled={submitting}
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-white ${
               isCreate
                 ? "bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700"
                 : "bg-indigo-600 hover:bg-indigo-700"
-            } disabled:opacity-50`}
+            }`}
           >
-            {isSubmitting ? (
+            {submitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : isCreate ? (
-              <Plus className="h-4 w-4" />
+              <Plus size={16} />
             ) : (
-              <Pencil className="h-4 w-4" />
+              <Pencil size={16} />
             )}
             {isCreate ? "Adicionar" : "Salvar"}
           </button>
@@ -133,24 +183,23 @@ function MaterialFormModal({
         onSubmit={onSubmit}
         className="grid grid-cols-1 md:grid-cols-2 gap-4"
       >
-        <div>
+        <div className="md:col-span-2">
           <label className="block text-sm font-medium text-slate-700 mb-1">
             Nome *
           </label>
           <input
-            type="text"
-            placeholder="Nome do material"
             value={formData.mat_nome || ""}
             onChange={(e) =>
               setFormData({ ...formData, mat_nome: e.target.value })
             }
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.mat_nome ? "border-rose-500" : "border-slate-300"
+              errors.mat_nome ? "border-rose-500" : "border-slate-300"
             }`}
+            placeholder="Nome do material"
             required
           />
-          {formErrors.mat_nome && (
-            <p className="text-rose-600 text-xs mt-1">{formErrors.mat_nome}</p>
+          {errors.mat_nome && (
+            <p className="text-rose-600 text-xs mt-1">{errors.mat_nome}</p>
           )}
         </div>
 
@@ -164,11 +213,11 @@ function MaterialFormModal({
               setFormData({ ...formData, mat_fk_tipo: e.target.value })
             }
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.mat_fk_tipo ? "border-rose-500" : "border-slate-300"
+              errors.mat_fk_tipo ? "border-rose-500" : "border-slate-300"
             }`}
             required
           >
-            <option value="">Selecione um tipo</option>
+            <option value="">Selecione…</option>
             {types.map((t) => (
               <option
                 key={t.tipo_id}
@@ -177,23 +226,22 @@ function MaterialFormModal({
               >
                 {t.tipo_nome} (
                 {
-                  categories.find((c) => c.cat_id === t.tipo_fk_categoria)
-                    ?.cat_nome
+                  categories.find(
+                    (c) => String(c.cat_id) === String(t.tipo_fk_categoria)
+                  )?.cat_nome
                 }
                 )
               </option>
             ))}
           </select>
-          {formErrors.mat_fk_tipo && (
-            <p className="text-rose-600 text-xs mt-1">
-              {formErrors.mat_fk_tipo}
-            </p>
+          {errors.mat_fk_tipo && (
+            <p className="text-rose-600 text-xs mt-1">{errors.mat_fk_tipo}</p>
           )}
         </div>
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            Preço (STN)
+            Preço
           </label>
           <input
             type="number"
@@ -204,11 +252,11 @@ function MaterialFormModal({
               setFormData({ ...formData, mat_preco: e.target.value })
             }
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.mat_preco ? "border-rose-500" : "border-slate-300"
+              errors.mat_preco ? "border-rose-500" : "border-slate-300"
             }`}
           />
-          {formErrors.mat_preco && (
-            <p className="text-rose-600 text-xs mt-1">{formErrors.mat_preco}</p>
+          {errors.mat_preco && (
+            <p className="text-rose-600 text-xs mt-1">{errors.mat_preco}</p>
           )}
         </div>
 
@@ -227,15 +275,15 @@ function MaterialFormModal({
               })
             }
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.mat_quantidade_estoque
+              errors.mat_quantidade_estoque
                 ? "border-rose-500"
                 : "border-slate-300"
             }`}
             required
           />
-          {formErrors.mat_quantidade_estoque && (
+          {errors.mat_quantidade_estoque && (
             <p className="text-rose-600 text-xs mt-1">
-              {formErrors.mat_quantidade_estoque}
+              {errors.mat_quantidade_estoque}
             </p>
           )}
         </div>
@@ -252,14 +300,12 @@ function MaterialFormModal({
               setFormData({ ...formData, mat_estoque_minimo: e.target.value })
             }
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.mat_estoque_minimo
-                ? "border-rose-500"
-                : "border-slate-300"
+              errors.mat_estoque_minimo ? "border-rose-500" : "border-slate-300"
             }`}
           />
-          {formErrors.mat_estoque_minimo && (
+          {errors.mat_estoque_minimo && (
             <p className="text-rose-600 text-xs mt-1">
-              {formErrors.mat_estoque_minimo}
+              {errors.mat_estoque_minimo}
             </p>
           )}
         </div>
@@ -269,22 +315,19 @@ function MaterialFormModal({
             Localização *
           </label>
           <input
-            type="text"
-            placeholder="Localização do armazém"
             value={formData.mat_localizacao || ""}
             onChange={(e) =>
               setFormData({ ...formData, mat_localizacao: e.target.value })
             }
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.mat_localizacao
-                ? "border-rose-500"
-                : "border-slate-300"
+              errors.mat_localizacao ? "border-rose-500" : "border-slate-300"
             }`}
+            placeholder="Ex.: Armazém A, Prateleira 3"
             required
           />
-          {formErrors.mat_localizacao && (
+          {errors.mat_localizacao && (
             <p className="text-rose-600 text-xs mt-1">
-              {formErrors.mat_localizacao}
+              {errors.mat_localizacao}
             </p>
           )}
         </div>
@@ -295,12 +338,12 @@ function MaterialFormModal({
           </label>
           <textarea
             rows={3}
-            placeholder="Descrição do material"
             value={formData.mat_descricao || ""}
             onChange={(e) =>
               setFormData({ ...formData, mat_descricao: e.target.value })
             }
             className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+            placeholder="Notas e especificações"
           />
         </div>
 
@@ -319,49 +362,55 @@ function MaterialFormModal({
             <option value="NAO">Não</option>
           </select>
         </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            Consumível?
+          </label>
+          <select
+            value={formData.mat_consumivel || "não"}
+            onChange={(e) =>
+              setFormData({ ...formData, mat_consumivel: e.target.value })
+            }
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="não">Não</option>
+            <option value="sim">Sim</option>
+          </select>
+        </div>
       </form>
     </Modal>
   );
 }
 
-/* ---------- Delete Modal (parcial/total) ---------- */
+/* =================== Modal Remoção =================== */
 function DeleteModal({
   open,
   onClose,
   onConfirm,
   target,
   mode,
-  deleteQty,
-  setDeleteQty,
-  deleteReason,
-  setDeleteReason,
+  qty,
+  setQty,
+  reason,
+  setReason,
   errors = {},
 }) {
   if (!open || !target) return null;
   const estoqueAtual = Number(target.mat_quantidade_estoque) || 0;
-  const saldo = Math.max(estoqueAtual - Number(deleteQty || 0), 0);
   const isAll = mode === "all";
+  const saldo = Math.max(estoqueAtual - Number(qty || 0), 0);
 
   return (
     <Modal
       open={open}
       onClose={onClose}
+      maxWidth="max-w-lg"
       title={
         <span className="inline-flex items-center gap-2">
-          {isAll ? (
-            <>
-              <XCircle className="h-5 w-5 text-rose-600" /> Apagar tudo —{" "}
-              {target.mat_nome}
-            </>
-          ) : (
-            <>
-              <Trash2 className="h-5 w-5 text-amber-600" /> Remover unidades —{" "}
-              {target.mat_nome}
-            </>
-          )}
+          {isAll ? "Apagar tudo" : "Remover unidades"} — {target.mat_nome}
         </span>
       }
-      maxWidth="max-w-lg"
       footer={
         <div className="flex justify-end gap-2">
           <button
@@ -378,27 +427,27 @@ function DeleteModal({
                 : "bg-amber-600 hover:bg-amber-700"
             }`}
           >
-            {isAll ? "Apagar tudo" : "Remover unidades"}
+            {isAll ? "Apagar tudo" : "Remover"}
           </button>
         </div>
       }
     >
       <div className="space-y-4">
         <p className="text-sm text-slate-700">
-          Estoque atual: <strong>{estoqueAtual}</strong>
+          Em stock: <strong>{estoqueAtual}</strong>
         </p>
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            Quantidade a remover {isAll && "(máx.)"}
+            Quantidade {isAll && "(máx.)"}
           </label>
           <input
             type="number"
             min={1}
             max={estoqueAtual}
             disabled={isAll}
-            value={deleteQty}
-            onChange={(e) => setDeleteQty(e.target.value)}
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 ${
               isAll ? "bg-slate-100 cursor-not-allowed" : "focus:ring-amber-500"
             } ${errors.qty ? "border-rose-500" : "border-slate-300"}`}
@@ -417,48 +466,32 @@ function DeleteModal({
           </label>
           <textarea
             rows={3}
-            placeholder={
-              isAll
-                ? "Ex.: Item descontinuado / perda total / inventário"
-                : "Ex.: Danificado / vencido"
-            }
-            value={deleteReason}
-            onChange={(e) => setDeleteReason(e.target.value)}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
             className={`w-full border rounded-lg px-3 py-2 focus:ring-2 ${
               isAll ? "focus:ring-rose-500" : "focus:ring-amber-500"
             } ${errors.reason ? "border-rose-500" : "border-slate-300"}`}
+            placeholder={
+              isAll
+                ? "Ex.: descontinuado / inventário"
+                : "Ex.: danificado / vencido"
+            }
           />
           {errors.reason && (
             <p className="text-rose-600 text-xs mt-1">{errors.reason}</p>
           )}
-        </div>
-
-        <div
-          className={`${
-            isAll
-              ? "bg-rose-50 border-rose-200"
-              : "bg-amber-50 border-amber-200"
-          } p-3 rounded-lg border`}
-        >
-          <p
-            className={`${isAll ? "text-rose-700" : "text-amber-700"} text-sm`}
-          >
-            {isAll
-              ? "Atenção: remove TODO o estoque. Se o saldo chegar a zero, o material será excluído."
-              : "Registra uma SAÍDA no histórico com o motivo informado."}
-          </p>
         </div>
       </div>
     </Modal>
   );
 }
 
-/* ---------- small sortable header cell ---------- */
+/* =================== Th com ordenação =================== */
 function Th({ label, active, dir, onClick }) {
   return (
     <th
       onClick={onClick}
-      className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase cursor-pointer select-none"
+      className="px-4 md:px-6 py-3 text-left text-[11px] font-semibold text-slate-600 uppercase cursor-pointer select-none tracking-wide"
       title="Ordenar"
     >
       <span className="inline-flex items-center">
@@ -475,7 +508,67 @@ function Th({ label, active, dir, onClick }) {
   );
 }
 
-/* ---------- Page ---------- */
+/* =================== Paginação =================== */
+function Pagination({ page, pages, onChange }) {
+  const windowPages = useMemo(() => {
+    if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+    const set = new Set([1, pages, page, page - 1, page + 1]);
+    const arr = [...set]
+      .filter((p) => p >= 1 && p <= pages)
+      .sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < arr.length; i++) {
+      out.push(arr[i]);
+      if (i < arr.length - 1 && arr[i + 1] - arr[i] > 1) out.push("…");
+    }
+    return out;
+  }, [page, pages]);
+
+  return (
+    <nav className="inline-flex items-center gap-1" aria-label="Paginação">
+      <button
+        onClick={() => onChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+        className="px-2 py-2 border rounded-md disabled:opacity-50"
+        title="Anterior"
+      >
+        <ArrowLeft size={16} />
+      </button>
+
+      {windowPages.map((p, i) =>
+        p === "…" ? (
+          <span key={`gap-${i}`} className="px-2 text-slate-500">
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            className={`min-w-[36px] px-2 py-2 border rounded-md text-sm ${
+              p === page
+                ? "bg-indigo-600 border-indigo-600 text-white"
+                : "hover:bg-slate-50"
+            }`}
+            aria-current={p === page ? "page" : undefined}
+          >
+            {p}
+          </button>
+        )
+      )}
+
+      <button
+        onClick={() => onChange(Math.min(pages, page + 1))}
+        disabled={page === pages}
+        className="px-2 py-2 border rounded-md disabled:opacity-50"
+        title="Próximo"
+      >
+        <ArrowRight size={16} />
+      </button>
+    </nav>
+  );
+}
+
+/* =================== Página =================== */
 export default function Materials() {
   const {
     // permissões
@@ -486,7 +579,7 @@ export default function Materials() {
     allowedCategoryIds,
     allowedTypeIds,
 
-    // dados e estados
+    // dados/estado
     categories,
     types,
     loading,
@@ -501,13 +594,15 @@ export default function Materials() {
     setSelectedCategory,
     stockFilter,
     setStockFilter,
+    consumivelFilter,
+    setConsumivelFilter,
     currentPage,
     setCurrentPage,
     totalPages,
     pageMaterials,
     filteredMaterials,
 
-    // form (hook)
+    // form
     setShowForm,
     formData,
     setFormData,
@@ -529,71 +624,140 @@ export default function Materials() {
     openDeleteModal,
     closeDeleteModal,
     handleConfirmDelete,
+
+    // excel/pdf
+    importMaterialsFromExcel,
+    exportMaterialsPdf,
   } = useMaterials();
 
-  // -------- local UI state (ordenar + form modal) --------
-  const [sort, setSort] = React.useState({ key: "mat_nome", dir: "asc" });
-  const onSort = (key) => {
+  /* -------- toasts -------- */
+  const [toasts, setToasts] = useState([]);
+  const pushToast = (kind, title, desc) =>
+    setToasts((ts) => [
+      ...ts,
+      { id: Math.random().toString(36).slice(2), kind, title, desc },
+    ]);
+  const closeToast = (id) => setToasts((ts) => ts.filter((t) => t.id !== id));
+
+  useEffect(() => {
+    if (error) pushToast("error", "Ocorreu um erro", error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error]);
+
+  /* -------- upload excel -------- */
+  const excelRef = useRef(null);
+
+  const pickExcel = () => excelRef.current?.click();
+
+  const onExcelSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      pushToast("error", "Formato inválido", "Escolhe um ficheiro .xlsx");
+      return;
+    }
+
+    try {
+      await importMaterialsFromExcel(file);
+      pushToast(
+        "success",
+        "Importação concluída",
+        "Excel importado para Materiais."
+      );
+    } catch {
+      pushToast(
+        "error",
+        "Falha ao importar",
+        "Verifica o ficheiro e os cabeçalhos."
+      );
+    }
+  };
+
+  /* -------- ordenação (apenas na página corrente) -------- */
+  const [sort, setSort] = useState({ key: "mat_nome", dir: "asc" });
+  const onSort = (key) =>
     setSort((s) =>
       s.key === key
         ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
         : { key, dir: "asc" }
     );
-  };
-  const sortedPage = React.useMemo(() => {
+
+  const sortedPage = useMemo(() => {
     const arr = [...pageMaterials];
-    const collator = new Intl.Collator("pt-PT", {
+    const col = new Intl.Collator("pt-PT", {
       numeric: true,
       sensitivity: "base",
     });
-    const get = (r, k) => {
-      if (k === "tipo")
-        return types.find((t) => t.tipo_id === r.mat_fk_tipo)?.tipo_nome ?? "";
-      return r[k];
-    };
+
+    const get = (r, k) =>
+      k === "tipo"
+        ? types.find((t) => String(t.tipo_id) === String(r.mat_fk_tipo))
+            ?.tipo_nome ?? ""
+        : r[k];
+
     arr.sort((a, b) => {
       const A = get(a, sort.key);
       const B = get(b, sort.key);
-      const isNum = typeof A === "number" || typeof B === "number";
-      const cmp = isNum
+      const num = typeof A === "number" || typeof B === "number";
+      const cmp = num
         ? Number(A) - Number(B)
-        : collator.compare(String(A ?? ""), String(B ?? ""));
+        : col.compare(String(A ?? ""), String(B ?? ""));
       return sort.dir === "asc" ? cmp : -cmp;
     });
+
     return arr;
   }, [pageMaterials, sort, types]);
 
-  // modal de form (criar/editar) — sem formulário inline
-  const [formModal, setFormModal] = React.useState({
-    open: false,
-    mode: "create",
-  }); // "create" | "edit"
+  /* -------- modal form -------- */
+  const [formModal, setFormModal] = useState({ open: false, mode: "create" });
+
   const openCreate = () => {
     resetForm();
-    setShowForm(true); // mantém semântica do hook
+    setShowForm(true);
     setFormModal({ open: true, mode: "create" });
   };
-  const openEdit = (mat) => {
-    handleEdit(mat); // prepara formData + editingId
+
+  const openEdit = (m) => {
+    handleEdit(m);
     setShowForm(true);
     setFormModal({ open: true, mode: "edit" });
   };
+
   const closeForm = () => {
     setShowForm(false);
     resetForm();
     setFormModal({ open: false, mode: "create" });
   };
 
-  // -------- guards --------
+  const onSubmitForm = async (e) => {
+    e?.preventDefault?.();
+    await handleSubmit(e);
+    pushToast(
+      "success",
+      formModal.mode === "create" ? "Material criado" : "Material atualizado"
+    );
+    closeForm();
+  };
+
+  const onConfirmDelete = async () => {
+    await handleConfirmDelete();
+    pushToast(
+      "success",
+      deleteMode === "all" ? "Material removido" : "Unidades removidas"
+    );
+  };
+
   if (!canView) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-[70vh] flex items-center justify-center">
         <div className="bg-rose-50 p-6 rounded-xl border border-rose-200 flex items-center gap-3">
           <Shield className="h-6 w-6 text-rose-600" />
           <div>
             <h3 className="font-semibold text-rose-800">Acesso negado</h3>
             <p className="text-rose-700 text-sm">
-              Você não tem permissão para ver materiais.
+              Não tem permissão para ver materiais.
             </p>
           </div>
         </div>
@@ -601,75 +765,75 @@ export default function Materials() {
     );
   }
 
-  if (loading && filteredMaterials.length === 0) {
-    return (
-      <div className="p-8 flex flex-col items-center">
-        <Loader2 className="animate-spin text-indigo-600" size={32} />
-        <span className="mt-2 text-slate-600">Carregando materiais…</span>
-      </div>
-    );
-  }
+  const startIndex = filteredMaterials.indexOf(pageMaterials[0] ?? null);
 
-  if (error && filteredMaterials.length === 0) {
-    return (
-      <div className="p-6">
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="text-rose-600" size={22} />
-          <div>
-            <h3 className="font-semibold text-rose-800">Erro</h3>
-            <p className="text-rose-700 text-sm">{error}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // -------- render --------
   return (
-    <div className="space-y-6  min-h-screen">
+    <div className="space-y-6 min-h-screen">
+      <Toasts items={toasts} remove={closeToast} />
+
       {/* Header */}
-      <div className="rounded-xl p-6 bg-white border border-slate-200">
+      <div className="rounded-2xl p-6 bg-white/80 backdrop-blur border border-slate-200 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-              <PackageCheck className="text-indigo-600" /> Gestão de Materiais
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
+              Gestão de Materiais
             </h1>
             <p className="text-slate-600 mt-1">
               {isAdmin
-                ? "Acesso total a todos os materiais"
-                : `Acesso a ${categories.length} categoria(s) e ${types.length} tipo(s)`}
+                ? "Acesso total."
+                : `Acesso a ${categories.length} categoria(s) e ${types.length} tipo(s).`}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Ações */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={excelRef}
+              type="file"
+              accept=".xlsx"
+              className="hidden"
+              onChange={onExcelSelected}
+            />
+
+            <button
+              onClick={exportMaterialsPdf}
+              disabled={loading || filteredMaterials.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border bg-red-500 text-white border-slate-300 hover:bg-red-300 cursor-pointer  disabled:opacity-50"
+              title="Exportar lista filtrada para PDF"
+            >
+              <FileText size={16} /> Exportar PDF
+            </button>
+
+            {canCreate && (
+              <button
+                onClick={pickExcel}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border bg-green-500  text-white border-slate-300 hover:bg-green-300 cursor-pointer"
+                title="Importar materiais via Excel (.xlsx)"
+              >
+                <FileUp size={16} /> Upload Excel
+              </button>
+            )}
+
             {canCreate && (
               <button
                 onClick={openCreate}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-white bg-gradient-to-r cursor-pointer from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700"
               >
-                <Plus size={18} />
-                Novo material
+                <Plus size={18} /> Novo material
               </button>
             )}
           </div>
         </div>
 
-        {/* badges de permissão */}
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           {!isAdmin ? (
-            <div className="p-3 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center gap-2">
-              <Shield className="text-indigo-600" size={18} />
-              <span className="text-indigo-800 text-sm">
-                Acesso a {allowedCategoryIds.length} categoria(s) •{" "}
-                {allowedTypeIds.length} tipo(s)
-              </span>
+            <div className="p-3 rounded-lg bg-indigo-50 border border-indigo-200 text-sm text-indigo-800">
+              Acesso a {allowedCategoryIds.length} categoria(s) •{" "}
+              {allowedTypeIds.length} tipo(s)
             </div>
           ) : (
-            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-2">
-              <Shield className="text-emerald-600" size={18} />
-              <span className="text-emerald-800 text-sm">
-                Administrador: acesso completo
-              </span>
+            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+              Administrador: acesso completo
             </div>
           )}
           <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-sm text-slate-700">
@@ -679,21 +843,20 @@ export default function Materials() {
       </div>
 
       {/* Filtros */}
-      <div className="rounded-xl p-4 bg-white border border-slate-200">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="rounded-2xl p-4 bg-white/80 backdrop-blur border border-slate-200 shadow-sm">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
           <div className="relative">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               size={18}
             />
             <input
-              type="text"
-              placeholder="Pesquisar materiais…"
               value={filterText}
               onChange={(e) => {
                 setFilterText(e.target.value);
                 setCurrentPage(1);
               }}
+              placeholder="Pesquisar materiais…"
               className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -707,9 +870,9 @@ export default function Materials() {
             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">Todas as categorias</option>
-            {categories.map((cat) => (
-              <option key={cat.cat_id} value={cat.cat_id}>
-                {cat.cat_nome}
+            {categories.map((c) => (
+              <option key={c.cat_id} value={c.cat_id}>
+                {c.cat_nome}
               </option>
             ))}
           </select>
@@ -723,9 +886,9 @@ export default function Materials() {
             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">Todos os tipos</option>
-            {types.map((type) => (
-              <option key={type.tipo_id} value={type.tipo_id}>
-                {type.tipo_nome}
+            {types.map((t) => (
+              <option key={t.tipo_id} value={t.tipo_id}>
+                {t.tipo_nome}
               </option>
             ))}
           </select>
@@ -743,186 +906,240 @@ export default function Materials() {
             <option value="normal">Estoque normal</option>
           </select>
 
+          <select
+            value={consumivelFilter}
+            onChange={(e) => {
+              setConsumivelFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">Todos</option>
+            <option value="sim">Consumíveis</option>
+            <option value="não">Não consumíveis</option>
+          </select>
+
           <button
-            type="button"
             onClick={() => {
               setFilterText("");
               setSelectedCategory("");
               setSelectedType("");
               setStockFilter("");
+              setConsumivelFilter("");
               setCurrentPage(1);
             }}
-            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700"
-            title="Limpar filtros"
+            className="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700"
           >
-            <FilterX size={16} /> Limpar
+            Limpar filtros
           </button>
         </div>
       </div>
 
       {/* Tabela */}
-      <div className="rounded-xl bg-white border border-slate-200 overflow-hidden">
-        {loading ? (
-          <div className="p-8 flex justify-center items-center">
+      <div className="rounded-2xl bg-white/80 backdrop-blur border border-slate-200 overflow-hidden shadow-sm">
+        {loading && filteredMaterials.length === 0 ? (
+          <div className="p-10 flex justify-center items-center">
             <Loader2 size={24} className="animate-spin text-indigo-600" />
           </div>
-        ) : sortedPage.length > 0 ? (
+        ) : filteredMaterials.length === 0 ? (
+          <div className="p-12 text-center">
+            <AlertCircle className="mx-auto text-slate-400 mb-4" size={42} />
+            <h3 className="text-lg font-semibold text-slate-900">
+              Nada encontrado
+            </h3>
+            <p className="text-slate-600 mt-1">
+              Ajuste os filtros ou adicione um novo material.
+            </p>
+            {canCreate && (
+              <button
+                onClick={openCreate}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700"
+              >
+                <Plus size={16} /> Novo material
+              </button>
+            )}
+          </div>
+        ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Desktop */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50 sticky top-0 z-10">
                   <tr>
                     <Th
-                      onClick={() => onSort("mat_id")}
-                      active={sort.key === "mat_id"}
-                      dir={sort.dir}
-                      label="Code"
+                      label="Nº"
+                      active={false}
+                      dir="asc"
+                      onClick={() => {}}
                     />
                     <Th
-                      onClick={() => onSort("mat_nome")}
+                      label="Nome"
                       active={sort.key === "mat_nome"}
                       dir={sort.dir}
-                      label="Nome"
+                      onClick={() => onSort("mat_nome")}
                     />
                     <Th
-                      onClick={() => onSort("mat_preco")}
+                      label="Preço"
                       active={sort.key === "mat_preco"}
                       dir={sort.dir}
-                      label="Preço"
+                      onClick={() => onSort("mat_preco")}
                     />
                     <Th
-                      onClick={() => onSort("mat_quantidade_estoque")}
+                      label="Stock"
                       active={sort.key === "mat_quantidade_estoque"}
                       dir={sort.dir}
-                      label="Estoque"
+                      onClick={() => onSort("mat_quantidade_estoque")}
                     />
                     <Th
-                      onClick={() => onSort("mat_estoque_minimo")}
+                      label="Mín"
                       active={sort.key === "mat_estoque_minimo"}
                       dir={sort.dir}
-                      label="Mín"
+                      onClick={() => onSort("mat_estoque_minimo")}
                     />
                     <Th
-                      onClick={() => onSort("tipo")}
+                      label="Tipo"
                       active={sort.key === "tipo"}
                       dir={sort.dir}
-                      label="Tipo"
+                      onClick={() => onSort("tipo")}
                     />
                     <Th
-                      onClick={() => onSort("mat_localizacao")}
+                      label="Localização"
                       active={sort.key === "mat_localizacao"}
                       dir={sort.dir}
-                      label="Localização"
+                      onClick={() => onSort("mat_localizacao")}
                     />
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">
+                    <th className="px-6 py-3 text-left text-[11px] font-semibold text-slate-600 uppercase">
                       Vendável
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase">
+                    <th className="px-6 py-3 text-left text-[11px] font-semibold text-slate-600 uppercase">
+                      Consumível
+                    </th>
+                    <th className="px-6 py-3 text-right text-[11px] font-semibold text-slate-600 uppercase">
                       Ações
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                  {sortedPage.map((mat) => {
-                    const isLowStock =
-                      Number(mat.mat_quantidade_estoque) <
-                      Number(mat.mat_estoque_minimo);
-                    const canManage = canManageMaterial(mat);
+                  {sortedPage.map((m, idx) => {
+                    const seq =
+                      (startIndex >= 0
+                        ? startIndex
+                        : (currentPage - 1) * sortedPage.length) +
+                      idx +
+                      1;
+
+                    const low =
+                      Number(m.mat_quantidade_estoque) <
+                      Number(m.mat_estoque_minimo);
+                    const can = canManageMaterial(m);
+                    const tipo =
+                      types.find(
+                        (t) => String(t.tipo_id) === String(m.mat_fk_tipo)
+                      )?.tipo_nome || "-";
+
                     return (
                       <tr
-                        key={mat.mat_id}
-                        className={
-                          isLowStock ? "bg-rose-50/60" : "hover:bg-slate-50"
-                        }
+                        key={m.mat_id}
+                        className={low ? "bg-rose-50/50" : "hover:bg-slate-50"}
                       >
-                        <td className="px-6 py-4 text-sm text-slate-900">
-                          {mat.mat_id}
+                        <td className="px-4 md:px-6 py-4 text-sm text-slate-900">
+                          {seq}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 md:px-6 py-4">
                           <div className="font-medium text-slate-900">
-                            {mat.mat_nome}
+                            {m.mat_nome}
                           </div>
-                          {mat.mat_descricao && (
+                          {!!m.mat_descricao && (
                             <div className="text-xs text-slate-500 truncate max-w-xs">
-                              {mat.mat_descricao}
+                              {m.mat_descricao}
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-900">
-                          STN {Number(mat.mat_preco).toFixed(2)}
+                        <td className="px-4 md:px-6 py-4 text-sm">
+                          {money(m.mat_preco)}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 md:px-6 py-4">
                           <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              isLowStock
+                              low
                                 ? "bg-rose-100 text-rose-800"
                                 : "bg-emerald-100 text-emerald-800"
                             }`}
                           >
-                            {isLowStock ? (
+                            {low ? (
                               <TrendingDown size={12} className="mr-1" />
                             ) : (
                               <TrendingUp size={12} className="mr-1" />
                             )}
-                            {mat.mat_quantidade_estoque}
+                            {m.mat_quantidade_estoque}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-900">
-                          {mat.mat_estoque_minimo}
+                        <td className="px-4 md:px-6 py-4 text-sm">
+                          {m.mat_estoque_minimo}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 md:px-6 py-4">
                           <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-800">
-                            {types.find((t) => t.tipo_id === mat.mat_fk_tipo)
-                              ?.tipo_nome || "-"}
+                            {tipo}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-900">
-                          {mat.mat_localizacao}
+                        <td className="px-4 md:px-6 py-4 text-sm">
+                          {m.mat_localizacao}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 md:px-6 py-4">
                           <span
                             className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                              mat.mat_vendavel === "SIM"
+                              m.mat_vendavel === "SIM"
                                 ? "bg-emerald-100 text-emerald-800"
                                 : "bg-slate-100 text-slate-800"
                             }`}
                           >
-                            {mat.mat_vendavel === "SIM" ? "Sim" : "Não"}
+                            {m.mat_vendavel === "SIM" ? "Sim" : "Não"}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right text-sm font-medium">
-                          <div className="flex justify-end gap-3">
+                        <td className="px-4 md:px-6 py-4">
+                          <span
+                            className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                              String(m.mat_consumivel).toLowerCase() === "sim"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-slate-100 text-slate-800"
+                            }`}
+                          >
+                            {String(m.mat_consumivel).toLowerCase() === "sim"
+                              ? "Sim"
+                              : "Não"}
+                          </span>
+                        </td>
+                        <td className="px-4 md:px-6 py-4 text-right">
+                          <div className="inline-flex items-center gap-2">
                             <button
-                              onClick={() => openEdit(mat)}
-                              disabled={!canManage}
-                              className={`p-1.5 rounded ${
-                                canManage
-                                  ? " text-indigo-700 hover:bg-indigo-50"
+                              onClick={() => openEdit(m)}
+                              disabled={!can}
+                              className={`px-2 py-1 rounded ${
+                                can
+                                  ? "text-indigo-700 hover:bg-indigo-50"
                                   : "text-slate-400 cursor-not-allowed"
                               }`}
                               title="Editar"
                             >
-                              {" "}
-                              Editar
+                              <Pencil size={16} />
                             </button>
                             <button
-                              onClick={() => openDeleteModal(mat, "partial")}
-                              disabled={!canManage}
-                              className={`p-1.5 rounded ${
-                                canManage
+                              onClick={() => openDeleteModal(m, "partial")}
+                              disabled={!can}
+                              className={`px-2 py-1 rounded ${
+                                can
                                   ? "text-amber-700 hover:bg-amber-50"
                                   : "text-slate-400 cursor-not-allowed"
                               }`}
                               title="Remover unidades"
                             >
-                              {" "}
                               Remover
                             </button>
                             <button
-                              onClick={() => openDeleteModal(mat, "all")}
-                              disabled={!canManage}
-                              className={`p-1.5 rounded ${
-                                canManage
+                              onClick={() => openDeleteModal(m, "all")}
+                              disabled={!can}
+                              className={`px-2 py-1 rounded ${
+                                can
                                   ? "text-rose-700 hover:bg-rose-50"
                                   : "text-slate-400 cursor-not-allowed"
                               }`}
@@ -930,13 +1147,6 @@ export default function Materials() {
                             >
                               <Trash2 size={16} />
                             </button>
-                            {!canManage && (
-                              <EyeOff
-                                size={16}
-                                className="text-slate-400"
-                                title="Sem permissão"
-                              />
-                            )}
                           </div>
                         </td>
                       </tr>
@@ -946,72 +1156,155 @@ export default function Materials() {
               </table>
             </div>
 
+            {/* Mobile cards */}
+            <div className="md:hidden grid gap-3 p-3">
+              {sortedPage.map((m, idx) => {
+                const seq =
+                  (startIndex >= 0
+                    ? startIndex
+                    : (currentPage - 1) * sortedPage.length) +
+                  idx +
+                  1;
+
+                const low =
+                  Number(m.mat_quantidade_estoque) <
+                  Number(m.mat_estoque_minimo);
+                const can = canManageMaterial(m);
+                const tipo =
+                  types.find((t) => String(t.tipo_id) === String(m.mat_fk_tipo))
+                    ?.tipo_nome || "-";
+
+                return (
+                  <div
+                    key={m.mat_id}
+                    className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">{seq}</span>
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          onClick={() => openEdit(m)}
+                          disabled={!can}
+                          className={`p-2 rounded ${
+                            can
+                              ? "text-indigo-700 hover:bg-indigo-50"
+                              : "text-slate-400"
+                          }`}
+                          aria-label="Editar"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          onClick={() => openDeleteModal(m, "partial")}
+                          disabled={!can}
+                          className={`p-2 rounded ${
+                            can
+                              ? "text-amber-700 hover:bg-amber-50"
+                              : "text-slate-400"
+                          }`}
+                          aria-label="Remover unidades"
+                        >
+                          Remover
+                        </button>
+                        <button
+                          onClick={() => openDeleteModal(m, "all")}
+                          disabled={!can}
+                          className={`p-2 rounded ${
+                            can
+                              ? "text-rose-700 hover:bg-rose-50"
+                              : "text-slate-400"
+                          }`}
+                          aria-label="Apagar tudo"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-1">
+                      <div className="text-base font-semibold text-slate-900">
+                        {m.mat_nome}
+                      </div>
+                      {!!m.mat_descricao && (
+                        <div className="text-xs text-slate-600">
+                          {m.mat_descricao}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                      <div className="text-slate-500">Tipo</div>
+                      <div className="text-slate-900">{tipo}</div>
+
+                      <div className="text-slate-500">Preço</div>
+                      <div className="text-slate-900">{money(m.mat_preco)}</div>
+
+                      <div className="text-slate-500">Local</div>
+                      <div className="text-slate-900">{m.mat_localizacao}</div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          low
+                            ? "bg-rose-100 text-rose-800"
+                            : "bg-emerald-100 text-emerald-800"
+                        }`}
+                      >
+                        {low ? (
+                          <TrendingDown size={12} className="mr-1" />
+                        ) : (
+                          <TrendingUp size={12} className="mr-1" />
+                        )}
+                        {m.mat_quantidade_estoque} (min {m.mat_estoque_minimo})
+                      </span>
+
+                      <span
+                        className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                          m.mat_vendavel === "SIM"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-slate-100 text-slate-800"
+                        }`}
+                      >
+                        {m.mat_vendavel === "SIM" ? "Vendável" : "Não vendável"}
+                      </span>
+
+                      <span
+                        className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                          String(m.mat_consumivel).toLowerCase() === "sim"
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-slate-100 text-slate-800"
+                        }`}
+                      >
+                        {String(m.mat_consumivel).toLowerCase() === "sim"
+                          ? "Consumível"
+                          : "Não consumível"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
             {/* Paginação */}
             {totalPages > 1 && (
               <div className="bg-slate-50 px-4 py-3 flex items-center justify-between border-t border-slate-200 sm:px-6">
-                <div className="flex-1 flex justify-between sm:hidden">
-                  <button
-                    onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                    disabled={currentPage === 1}
-                    className="px-4 py-2 border rounded disabled:opacity-50"
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    onClick={() =>
-                      setCurrentPage((p) => Math.min(p + 1, totalPages))
-                    }
-                    disabled={currentPage === totalPages}
-                    className="px-4 py-2 border rounded disabled:opacity-50"
-                  >
-                    Próximo
-                  </button>
-                </div>
-                <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                  <p className="text-sm text-slate-700">
-                    Página <span className="font-medium">{currentPage}</span> de{" "}
-                    <span className="font-medium">{totalPages}</span>
-                  </p>
-                  <nav className="inline-flex rounded-md shadow-sm -space-x-px">
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                      disabled={currentPage === 1}
-                      className="px-2 py-2 border rounded-l disabled:opacity-50"
-                      title="Anterior"
-                    >
-                      <ArrowLeft size={16} />
-                    </button>
-                    <button
-                      onClick={() =>
-                        setCurrentPage((p) => Math.min(p + 1, totalPages))
-                      }
-                      disabled={currentPage === totalPages}
-                      className="px-2 py-2 border rounded-r disabled:opacity-50"
-                      title="Próximo"
-                    >
-                      <ArrowRight size={16} />
-                    </button>
-                  </nav>
-                </div>
+                <p className="hidden md:block text-sm text-slate-700">
+                  Página <span className="font-medium">{currentPage}</span> de{" "}
+                  <span className="font-medium">{totalPages}</span>
+                </p>
+                <Pagination
+                  page={currentPage}
+                  pages={totalPages}
+                  onChange={setCurrentPage}
+                />
               </div>
             )}
           </>
-        ) : (
-          <div className="p-10 text-center">
-            <Package className="mx-auto text-slate-400 mb-4" size={48} />
-            <h3 className="text-lg font-medium text-slate-900 mb-1">
-              Nenhum material encontrado
-            </h3>
-            <p className="text-slate-600">
-              {filterText || selectedType || selectedCategory || stockFilter
-                ? "Tente ajustar os filtros de pesquisa."
-                : "Comece criando seu primeiro material."}
-            </p>
-          </div>
         )}
       </div>
 
-      {/* MODAL: Criar/Editar */}
+      {/* Modais */}
       <MaterialFormModal
         open={formModal.open}
         mode={formModal.mode}
@@ -1021,22 +1314,21 @@ export default function Materials() {
         types={types}
         canManageMaterial={canManageMaterial}
         onClose={closeForm}
-        onSubmit={handleSubmit} // usa o submit do hook
-        isSubmitting={isSubmitting}
-        formErrors={formErrors}
+        onSubmit={onSubmitForm}
+        submitting={isSubmitting}
+        errors={formErrors}
       />
 
-      {/* MODAL: Excluir (parcial/total) */}
       <DeleteModal
         open={deleteOpen}
         onClose={closeDeleteModal}
-        onConfirm={handleConfirmDelete}
+        onConfirm={onConfirmDelete}
         target={deleteTarget}
         mode={deleteMode}
-        deleteQty={deleteQty}
-        setDeleteQty={setDeleteQty}
-        deleteReason={deleteReason}
-        setDeleteReason={setDeleteReason}
+        qty={deleteQty}
+        setQty={setDeleteQty}
+        reason={deleteReason}
+        setReason={setDeleteReason}
         errors={deleteErrors}
       />
     </div>

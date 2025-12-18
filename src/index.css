@@ -1,1 +1,47 @@
 @import "tailwindcss";
+
+/* Escala global: diminui em ecrãs mais pequenos */
+html {
+  font-size: 14px;
+}
+
+/* monitores até 1536px */
+@media (max-width: 1536px) {
+  html {
+    font-size: 13px;
+  }
+}
+
+/* portáteis 1366/1440 */
+@media (max-width: 1440px) {
+  html {
+    font-size: 12px;
+  }
+}
+
+/* abaixo de 1280 */
+@media (max-width: 1280px) {
+  html {
+    font-size: 11px;
+  }
+}
+
+/* tablets / mais pequenos */
+@media (max-width: 1024px) {
+  html {
+    font-size: 10px;
+  }
+}
+
+body {
+  margin: 0;
+  background-color: #020617; /* mantém fundo escuro */
+}
+
+.animate-fade-in { animation: fade-in .15s ease-out both; }
+.animate-scale-in { animation: scale-in .15s ease-out both; }
+.animate-slide-up { animation: slide-up .2s ease-out both; }
+
+@keyframes fade-in   { from { opacity:0 } to { opacity:1 } }
+@keyframes scale-in  { from { opacity:0; transform:scale(.95) } to { opacity:1; transform:scale(1) } }
+@keyframes slide-up  { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform: translateY(0) } }

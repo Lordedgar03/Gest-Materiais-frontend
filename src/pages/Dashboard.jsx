@@ -1,310 +1,995 @@
-"use client"
+/* eslint-disable no-unused-vars */
+"use client";
 
-import React from "react"
+import React from "react";
 import {
-  Users, PackageCheck, Shapes, Layers, RefreshCw, FileText,
-  ArrowUpRight, ArrowDownRight, Loader2,
-  Calendar, Activity, PieChart, AlertCircle, BarChart4
-} from "lucide-react"
+  RefreshCw,
+  CalendarDays,
+  TrendingUp,
+  DollarSign,
+  PackageCheck,
+  Activity,
+  PieChart as PieIcon,
+  Clock,
+  ChevronRight,
+  ChevronLeft,
+  ShoppingCart,
+  Search,
+  Filter,
+  Layers,
+} from "lucide-react";
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, ReferenceLine, Cell, PieChart as RechartPieChart, Pie
-} from "recharts"
-import { useDashboard } from "../hooks/useDashboard"
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ReferenceLine,
+  BarChart,
+  Bar,
+  Line,
+  Legend,
+  Cell,
+  PieChart as RePieChart,
+  Pie,
+} from "recharts";
 
-// ícones pelo nome (vindo do hook)
-const ICONS = { Users, PackageCheck, Shapes, Layers, RefreshCw, FileText }
+import { useDashboard } from "../hooks/useDashboard";
+import {
+  useRequisicao,
+  statusColors,
+  statusIcons,
+} from "../hooks/useRequisicao";
+import useAlmoco from "../hooks/useAlmoco";
+import useAlunos from "../hooks/useAlunos";
 
-// estilos por “tone” dos cards
-const TONES = {
-  blue:    { bg: "bg-gradient-to-br from-blue-500/10 to-blue-400/10",   text: "text-blue-700 dark:text-blue-300",   ring: "ring-blue-400/30",   dot: "bg-blue-500" },
-  emerald: { bg: "bg-gradient-to-br from-emerald-500/10 to-emerald-400/10", text: "text-emerald-700 dark:text-emerald-300", ring: "ring-emerald-400/30", dot: "bg-emerald-500" },
-  amber:   { bg: "bg-gradient-to-br from-amber-500/10 to-amber-400/10", text: "text-amber-700 dark:text-amber-300", ring: "ring-amber-400/30",   dot: "bg-amber-500" },
-  pink:    { bg: "bg-gradient-to-br from-pink-500/10 to-pink-400/10",   text: "text-pink-700 dark:text-pink-300",   ring: "ring-pink-400/30",    dot: "bg-pink-500" },
-  indigo:  { bg: "bg-gradient-to-br from-indigo-500/10 to-indigo-400/10", text: "text-indigo-700 dark:text-indigo-300", ring: "ring-indigo-400/30", dot: "bg-indigo-500" },
-  purple:  { bg: "bg-gradient-to-br from-purple-500/10 to-purple-400/10", text: "text-purple-700 dark:text-purple-300", ring: "ring-purple-400/30", dot: "bg-purple-500" },
+/* =================== helpers =================== */
+const nf = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat("pt-PT", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const stn = (n) => `STN ${nf2.format(Number(n || 0))}`;
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString("pt-PT") : "—");
+
+const CHART_COLORS = {
+  receita: "#0ea5e9",
+  entrada: "#10b981",
+  saida: "#ef4444",
+  estoque: "#6366f1",
+};
+
+function cn(...xs) {
+  return xs.filter(Boolean).join(" ");
 }
 
-// eslint-disable-next-line no-unused-vars
-function StatCard({ icon: IconCmp = Users, label, value, secondaryValue, trend, tone = "blue" }) {
-  const t = TONES[tone] || TONES.blue
-  return (
-    <div className={`rounded-xl p-3 ring-1 ${t.ring} ${t.bg} backdrop-blur-sm border border-white/10 shadow-sm`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className={`h-7 w-7 rounded-lg bg-white/60 dark:bg-white/5 border border-white/20 flex items-center justify-center`}>
-            <IconCmp size={16} className={`${t.text}`} />
-          </div>
-          <p className={`text-xs font-medium ${t.text}`}>{label}</p>
-        </div>
+/* =================== pagination hook =================== */
+function usePagination(items, pageSize = 8) {
+  const [page, setPage] = React.useState(1);
+
+  const total = items?.length || 0;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(1, page), pages);
+
+  React.useEffect(() => {
+    // se o tamanho mudar e a página ficar inválida, corrige
+    if (safePage !== page) setPage(safePage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages]);
+
+  const slice = React.useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return (items || []).slice(start, start + pageSize);
+  }, [items, safePage, pageSize]);
+
+  return {
+    page: safePage,
+    pages,
+    total,
+    pageSize,
+    slice,
+    canPrev: safePage > 1,
+    canNext: safePage < pages,
+    prev: () => setPage((p) => Math.max(1, p - 1)),
+    next: () => setPage((p) => p + 1),
+    setPage,
+  };
+}
+
+/* =================== UI blocks =================== */
+const Shell = ({ children }) => (
+  <div className="min-h-screen  dark:bg-slate-950">
+    <div className="mx-auto max-w-[1400px] px-3 md:px-6 py-2">{children}</div>
+  </div>
+);
+
+const Topbar = ({ onRefresh, lastUpdated }) => (
+  <header className="sticky top-0 z-30 -mx-3 md:-mx-6  dark:bg-slate-950/60 backdrop-blur dark:border-slate-800">
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <h1 className="text-2xl font-extrabold text-indigo-600 dark:text-white">
+          Dashboard
+        </h1>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Última atualização:{" "}
+          {lastUpdated ? new Date(lastUpdated).toLocaleString("pt-PT") : "—"}
+        </p>
       </div>
-      <div className="mt-1">
-        <h3 className={`text-xl font-bold ${t.text}`}>{value ?? "—"}</h3>
-        {secondaryValue && <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{secondaryValue}</p>}
-      </div>
-      {typeof trend === "number" && (
-        <div className="mt-1">
-          {trend > 0 ? (
-            <span className="inline-flex items-center text-emerald-600 dark:text-emerald-400 text-xs font-medium">
-              <ArrowUpRight size={14} className="mr-1" /> +{trend}
-            </span>
-          ) : trend < 0 ? (
-            <span className="inline-flex items-center text-rose-600 dark:text-rose-400 text-xs font-medium">
-              <ArrowDownRight size={14} className="mr-1" /> {trend}
-            </span>
-          ) : (
-            <span className="text-gray-500 dark:text-gray-400 text-xs">0</span>
-          )}
-        </div>
-      )}
+
+      <button
+        onClick={onRefresh}
+        className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-indigo-600 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 font-medium"
+      >
+        <RefreshCw className="h-4 w-4" />
+        Atualizar
+      </button>
     </div>
-  )
-}
+  </header>
+);
 
-function Skeleton() {
-  return (
-    <div className="h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-900/70 backdrop-blur">
-        <div className="h-7 w-40 bg-gray-200 dark:bg-gray-800 rounded animate-pulse" />
+const Card = ({ title, icon: Icon, right, children, className }) => (
+  <section
+    className={cn(
+      "rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/50 backdrop-blur shadow-sm",
+      className
+    )}
+  >
+    <div className="px-4 md:px-2 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2 min-w-0">
+        {Icon ? (
+          <span className="h-9 w-9 rounded-2xl bg-slate-100 dark:bg-indigo-600 border border-slate-200 dark:border-slate-800 grid place-items-center">
+            <Icon size={16} className="text-slate-700 dark:text-slate-200" />
+          </span>
+        ) : null}
+        <h2 className="font-semibold text-slate-900 dark:text-white truncate">
+          {title}
+        </h2>
       </div>
-      <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-20 rounded-xl bg-gray-200 dark:bg-gray-800 animate-pulse" />
-        ))}
-      </div>
-      <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="h-80 rounded-xl bg-gray-200 dark:bg-gray-800 animate-pulse lg:col-span-2" />
-        <div className="h-80 rounded-xl bg-gray-200 dark:bg-gray-800 animate-pulse" />
-      </div>
-      <div className="p-4">
-        <div className="h-40 rounded-xl bg-gray-200 dark:bg-gray-800 animate-pulse" />
-      </div>
+      {right}
     </div>
-  )
+    <div className="p-4 md:p-6">{children}</div>
+  </section>
+);
+
+const Kpi = ({ title, value, subtitle, icon: Icon }) => (
+  <article className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/50 backdrop-blur p-4 shadow-sm">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
+        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+          {title}
+        </p>
+        <p className="mt-1 text-xl md:text-2xl font-bold text-slate-900 dark:text-white">
+          {value}
+        </p>
+      </div>
+      <span className="h-10 w-10 rounded-2xl bg-slate-100 dark:bg-indigo-600 border border-slate-200 dark:border-slate-800 grid place-items-center shrink-0">
+        <Icon size={18} className="text-slate-700 dark:text-slate-200" />
+      </span>
+    </div>
+  </article>
+);
+
+const EmptyState = ({ message }) => (
+  <div className="h-[280px] flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm">
+    {message}
+  </div>
+);
+
+const Pager = ({ page, pages, total, onPrev, onNext, canPrev, canNext }) => (
+  <div className="flex items-center justify-between gap-2 pt-3">
+    <div className="text-xs text-slate-500 dark:text-slate-400">
+      {total} itens • Página{" "}
+      <b className="text-slate-900 dark:text-white">{page}</b> / {pages}
+    </div>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={!canPrev}
+        className="inline-flex items-center gap-1 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 hover:bg-slate-100 dark:hover:bg-indigo-600 disabled:opacity-50"
+      >
+        <ChevronLeft size={16} /> Prev
+      </button>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!canNext}
+        className="inline-flex items-center gap-1 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 hover:bg-slate-100 dark:hover:bg-indigo-600 disabled:opacity-50"
+      >
+        Next <ChevronRight size={16} />
+      </button>
+    </div>
+  </div>
+);
+
+/* =================== charts =================== */
+function ComposedMovInventory({ data }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+        <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
+        <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+        <Tooltip />
+        <Legend />
+        <Bar
+          yAxisId="left"
+          dataKey="entrada"
+          name="Entradas"
+          stackId="a"
+          fill={CHART_COLORS.entrada}
+        />
+        <Bar
+          yAxisId="left"
+          dataKey="saida"
+          name="Saídas"
+          stackId="a"
+          fill={CHART_COLORS.saida}
+        />
+        <Line
+          yAxisId="right"
+          type="monotone"
+          dataKey="estoque"
+          name="Estoque"
+          stroke={CHART_COLORS.estoque}
+          strokeWidth={3}
+          dot={false}
+        />
+      </BarChart>
+    </ResponsiveContainer>
+  );
 }
 
+function pickStatusColor(name) {
+  const map = {
+    Pendente: "#f59e0b",
+    Aprovada: "#10b981",
+    Rejeitada: "#ef4444",
+    Cancelada: "#94a3b8",
+    Parcial: "#38bdf8",
+    "Em Uso": "#8b5cf6",
+    Atendida: "#059669",
+    Devolvida: "#14b8a6",
+  };
+  return map[name] || "#6366f1";
+}
+
+/* =================== page =================== */
 export default function Dashboard() {
   const {
-    loading, error, 
-    metrics = {}, chartData = { movementData: [], categoryData: [] },
-    cards = [], COLORS = [],
+    loading,
+    error,
+    lastUpdated,
+    chartData = { movementData: [], categoryData: [], salesByDay: [] },
+    materials = [],
+    movements = [],
     refresh,
-  } = useDashboard()
+  } = useDashboard();
 
-  const formatTooltip = (value, name) => {
-    const nameMap = { entrada: "Entradas", saida: "Saídas", total: "Balanço" }
-    return [value, nameMap[name] || name]
+  const { requisicoes = [], canDecideReq } = useRequisicao();
+  const { precoHoje, relHoje, relMensal, loadMensal, loadingMensal } =
+    useAlmoco();
+  useAlunos(); // mantém caso uses algum side-effect
+
+  // Tabs (para ficar mais limpo no mobile)
+  const [tab, setTab] = React.useState("visao"); // visao | operacao
+  const [qLowStock, setQLowStock] = React.useState("");
+  const [qMoves, setQMoves] = React.useState("");
+  const [qReq, setQReq] = React.useState("");
+
+  /* ===== Derivados ===== */
+  const mov30 = React.useMemo(
+    () => chartData.movementData.slice(-30),
+    [chartData.movementData]
+  );
+  const sales30 = React.useMemo(
+    () => chartData.salesByDay?.slice(-30) ?? [],
+    [chartData.salesByDay]
+  );
+
+  const inventorySeries = React.useMemo(() => {
+    let acc = 0;
+    return mov30.map((d) => {
+      acc += (d.entrada || 0) - (d.saida || 0);
+      return {
+        date: d.date,
+        estoque: acc,
+        entrada: d.entrada || 0,
+        saida: d.saida || 0,
+      };
+    });
+  }, [mov30]);
+
+  const lowStockAll = React.useMemo(() => {
+    const base = materials
+      .filter(
+        (m) => Number(m.mat_quantidade_estoque) < Number(m.mat_estoque_minimo)
+      )
+      .sort(
+        (a, b) =>
+          Number(a.mat_quantidade_estoque) - Number(b.mat_quantidade_estoque)
+      );
+
+    const q = String(qLowStock || "")
+      .trim()
+      .toLowerCase();
+    if (!q) return base;
+    return base.filter((m) =>
+      String(m.mat_nome || "")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [materials, qLowStock]);
+
+  const movementsAll = React.useMemo(() => {
+    const base = (movements || []).slice().reverse(); // recentes primeiro
+    const q = String(qMoves || "")
+      .trim()
+      .toLowerCase();
+    if (!q) return base;
+    return base.filter((mv) => {
+      const tipo = String(mv.mov_tipo || "").toLowerCase();
+      const motivo = String(mv.mov_motivo || "").toLowerCase();
+      return tipo.includes(q) || motivo.includes(q);
+    });
+  }, [movements, qMoves]);
+
+  const reqsPendentesAll = React.useMemo(() => {
+    const base = requisicoes.filter(
+      (r) => String(r.req_status) === "Pendente" && canDecideReq(r)
+    );
+    const q = String(qReq || "")
+      .trim()
+      .toLowerCase();
+    if (!q) return base;
+    return base.filter((r) => {
+      const s = String(r.req_status || "").toLowerCase();
+      const id = String(r.req_id || r.id || "").toLowerCase();
+      const desc = String(r.req_descricao || r.descricao || "").toLowerCase();
+      return s.includes(q) || id.includes(q) || desc.includes(q);
+    });
+  }, [requisicoes, canDecideReq, qReq]);
+
+  const statusCounts = React.useMemo(() => {
+    const map = new Map();
+    requisicoes.forEach((r) => {
+      const s = String(r.req_status || "Desconhecido");
+      map.set(s, (map.get(s) || 0) + 1);
+    });
+    return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+  }, [requisicoes]);
+
+  React.useEffect(() => {
+    const now = new Date();
+    // no teu código antigo tu passavas mes como número: now.getMonth()+1
+    // aqui mantenho o mesmo padrão:
+    loadMensal?.(now.getFullYear(), now.getMonth() + 1);
+  }, [loadMensal]);
+
+  const almocoSerie = React.useMemo(() => {
+    const dias = relMensal?.dias || [];
+    return dias.map((d) => ({
+      date: d.data || "",
+      almocos: Number(d.total_almocos || 0),
+      receita: Number(d.total_arrecadado || 0),
+    }));
+  }, [relMensal]);
+
+  /* ===== Paginações ===== */
+  const lowStockPg = usePagination(lowStockAll, 8);
+  const movesPg = usePagination(movementsAll, 10);
+  const reqPg = usePagination(reqsPendentesAll, 8);
+
+  /* ===== KPIs ===== */
+  const vendas30 = sales30.reduce((s, d) => s + (d.vendas || 0), 0);
+  const receita30 = sales30.reduce((s, d) => s + Number(d.receita || 0), 0);
+  const saldo30 = mov30.reduce(
+    (s, d) => s + ((d.entrada || 0) - (d.saida || 0)),
+    0
+  );
+  // ✅ classes padrão para botões
+  const BTN_PRIMARY =
+    "inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed";
+
+  const BTN_OUTLINE =
+    "inline-flex items-center gap-1 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 hover:bg-slate-100 dark:hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed";
+
+  /* ===== Loading/Erro ===== */
+  if (loading) {
+    return (
+      <Shell>
+        <Topbar onRefresh={refresh} lastUpdated={lastUpdated} />
+        <div className="grid gap-4 mt-5 sm:grid-cols-2 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-28 rounded-3xl bg-slate-100 dark:bg-indigo-600/50 animate-pulse"
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+          <div className="h-[360px] rounded-3xl bg-slate-100 dark:bg-indigo-600/50 animate-pulse lg:col-span-2" />
+          <div className="h-[360px] rounded-3xl bg-slate-100 dark:bg-indigo-600/50 animate-pulse" />
+        </div>
+      </Shell>
+    );
   }
-
-  if (loading) return <Skeleton />
 
   if (error) {
     return (
-      <div className=" flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6 max-w-md">
-          <h3 className="text-lg font-semibold text-red-800 dark:text-red-300 mb-2 flex items-center">
-            <AlertCircle className="mr-2 h-5 w-5" />
-            Erro ao carregar dados
-          </h3>
-          <p className="text-sm text-red-700 dark:text-red-200 mb-4">{error}</p>
-          <button
-            onClick={refresh}
-            className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700"
-          >
-            <RefreshCw className="mr-2 h-4 w-4" /> Tentar novamente
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="h-screen flex flex-col overflow-hidden">
-      <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 to-purple-600">
-            Dashboard
-          </h1>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600 dark:text-gray-300 hidden md:flex items-center">
-              <Calendar className="h-4 w-4 mr-1" />
-              {new Date().toLocaleDateString("pt-PT")}
-            </span>
+      <Shell>
+        <Topbar onRefresh={refresh} lastUpdated={lastUpdated} />
+        <div className="py-4 flex flex-col items-center">
+          <div className="p-2 rounded-3xl bg-white dark:bg-slate-950 border border-rose-200 dark:border-rose-900 max-w-md text-center">
+            <h3 className="font-semibold text-rose-700 dark:text-rose-300">
+              Falha ao carregar
+            </h3>
+            <p className="text-sm text-rose-700/80 dark:text-rose-200/80 mt-1">
+              {error}
+            </p>
             <button
               onClick={refresh}
-              className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-indigo-600 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 font-medium"
             >
-              <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
+              <RefreshCw className="h-4 w-4" /> Tentar novamente
             </button>
           </div>
         </div>
+      </Shell>
+    );
+  }
 
-      {/* content */}
-      <div className="flex-grow  p-4">
-        {/* cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-          {cards.map((card, idx) => {
-            const Icon = ICONS[card.iconName] || Users
-            return (
-              <StatCard
-                key={`${card.label}-${idx}`}
-                icon={Icon}
-                label={card.label}
-                value={card.value}
-                secondaryValue={card.secondaryValue}
-                trend={card.trend}
-                tone={card.tone}
-              />
-            )
-          })}
-        </div>
+  return (
+    <Shell>
+      <Topbar onRefresh={refresh} lastUpdated={lastUpdated} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* movement chart */}
-          <div className="lg:col-span-2 rounded-xl bg-white/80 dark:bg-gray-900/70 backdrop-blur border border-gray-100 dark:border-white/10 p-4">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 flex items-center">
-                <Activity className="h-5 w-5 mr-2 text-indigo-600" />
-                Movimentações
-              </h2>
-              <div className="flex items-center space-x-3">
-                <span className="flex items-center text-xs text-gray-700 dark:text-gray-300">
-                  <div className="h-3 w-3 rounded-full mr-1 bg-emerald-400" /> Entradas
-                </span>
-                <span className="flex items-center text-xs text-gray-700 dark:text-gray-300">
-                  <div className="h-3 w-3 rounded-full mr-1 bg-rose-400" /> Saídas
-                </span>
-              </div>
-            </div>
-
-            {chartData.movementData?.length ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={chartData.movementData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorEntrada" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#34d399" stopOpacity={0.8} />
-                      <stop offset="95%" stopColor="#34d399" stopOpacity={0.1} />
-                    </linearGradient>
-                    <linearGradient id="colorSaida" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#fb7185" stopOpacity={0.8} />
-                      <stop offset="95%" stopColor="#fb7185" stopOpacity={0.1} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eceff1" />
-                  <XAxis dataKey="date" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={{ stroke: "#e5e7eb" }} />
-                  <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={{ stroke: "#e5e7eb" }} />
-                  <Tooltip
-                    formatter={formatTooltip}
-                    contentStyle={{
-                      backgroundColor: "rgba(255, 255, 255, 0.95)",
-                      border: "1px solid rgba(229,231,235,1)",
-                      borderRadius: 8,
-                      boxShadow: "0 10px 15px -3px rgba(0,0,0,0.08)",
-                    }}
-                  />
-                  <ReferenceLine y={0} stroke="#e5e7eb" />
-                  <Area type="monotone" dataKey="entrada" stroke="#34d399" strokeWidth={2} fillOpacity={1} fill="url(#colorEntrada)" activeDot={{ r: 6 }} />
-                  <Area type="monotone" dataKey="saida" stroke="#fb7185" strokeWidth={2} fillOpacity={1} fill="url(#colorSaida)" activeDot={{ r: 6 }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-64 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-                <p className="text-gray-500 dark:text-gray-300">Sem dados de movimentação</p>
-              </div>
-            )}
-          </div>
-
-          {/* category pie */}
-          <div className="rounded-xl bg-white/80 dark:bg-gray-900/70 backdrop-blur border border-gray-100 dark:border-white/10 p-4">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
-              <PieChart className="h-5 w-5 mr-2 text-indigo-600" />
-              Materiais por Categoria
-            </h2>
-
-            {chartData.categoryData?.length ? (
-              <div className="h-[300px] flex flex-col justify-center">
-                <ResponsiveContainer width="100%" height="80%">
-                  <RechartPieChart>
-                    <Pie
-                      data={chartData.categoryData}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={84}
-                      dataKey="value"
-                      nameKey="name"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {chartData.categoryData.map((entry, i) => (
-                        <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value, name) => [value, name]}
-                      contentStyle={{
-                        backgroundColor: "rgba(255, 255, 255, 0.95)",
-                        border: "1px solid rgba(229,231,235,1)",
-                        borderRadius: 8,
-                        boxShadow: "0 10px 15px -3px rgba(0,0,0,0.08)",
-                      }}
-                    />
-                  </RechartPieChart>
-                </ResponsiveContainer>
-
-                <div className="flex flex-wrap justify-center mt-2 gap-2">
-                  {chartData.categoryData.map((entry, index) => (
-                    <div key={`legend-${index}`} className="flex items-center">
-                      <div
-                        className="h-3 w-3 rounded-full mr-1"
-                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                      />
-                      <span className="text-xs text-gray-700 dark:text-gray-300">{entry.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-64 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
-                <p className="text-gray-500 dark:text-gray-300">Sem categorias disponíveis</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* recent stats */}
-        <div className="mt-4 rounded-xl bg-white/80 dark:bg-gray-900/70 backdrop-blur border border-gray-100 dark:border-white/10 p-4">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4 flex items-center">
-            <BarChart4 className="h-5 w-5 mr-2 text-indigo-600" />
-            Estatísticas Recentes (Últimos 7 dias)
-          </h2>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="rounded-xl p-4 ring-1 ring-blue-400/20 bg-gradient-to-br from-blue-500/10 to-blue-400/10">
-              <h3 className="text-sm text-blue-700 dark:text-blue-300 font-medium mb-2">Entradas</h3>
-              <p className="text-2xl font-bold text-blue-800 dark:text-blue-200">{metrics.totalEntradas ?? "—"}</p>
-              <p className="text-xs text-blue-600 dark:text-blue-300/80 mt-1">Total</p>
-            </div>
-
-            <div className="rounded-xl p-4 ring-1 ring-rose-400/20 bg-gradient-to-br from-rose-500/10 to-rose-400/10">
-              <h3 className="text-sm text-rose-700 dark:text-rose-300 font-medium mb-2">Saídas</h3>
-              <p className="text-2xl font-bold text-rose-800 dark:text-rose-200">{metrics.totalSaidas ?? "—"}</p>
-              <p className="text-xs text-rose-600 dark:text-rose-300/80 mt-1">Total</p>
-            </div>
-
-            <div className="rounded-xl p-4 ring-1 ring-amber-400/20 bg-gradient-to-br from-amber-500/10 to-amber-400/10">
-              <h3 className="text-sm text-amber-700 dark:text-amber-300 font-medium mb-2">Balanço</h3>
-              <p className="text-2xl font-bold text-amber-800 dark:text-amber-200">{metrics.inventoryTrend ?? "—"}</p>
-              <p className="text-xs text-amber-600 dark:text-amber-300/80 mt-1">Diferença entrada/saída</p>
-            </div>
-
-            <div className="rounded-xl p-4 ring-1 ring-emerald-400/20 bg-gradient-to-br from-emerald-500/10 to-emerald-400/10">
-              <h3 className="text-sm text-emerald-700 dark:text-emerald-300 font-medium mb-2">Materiais</h3>
-              <p className="text-2xl font-bold text-emerald-800 dark:text-emerald-200">{metrics.lowStockMaterials ?? "—"}</p>
-              <p className="text-xs text-emerald-600 dark:text-emerald-300/80 mt-1">Com estoque baixo</p>
-            </div>
-          </div>
-        </div>
+      {/* Tabs (melhor no mobile) */}
+      <div className="mt-4 flex items-center gap-2">
+        {[
+          { k: "visao", label: "Visão Geral", icon: Layers },
+          { k: "operacao", label: "Operação", icon: Activity },
+        ].map((t) => {
+          const ActiveIcon = t.icon;
+          const active = tab === t.k;
+          return (
+            <button
+              key={t.k}
+              type="button"
+              onClick={() => setTab(t.k)}
+              className={cn(
+                "inline-flex items-center gap-2 px-4 py-2 rounded-2xl border text-sm font-medium transition-colors",
+                active
+                  ? "bg-indigo-600 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white"
+                  : "bg-white/70 dark:bg-slate-950/40 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-indigo-600"
+              )}
+            >
+              <ActiveIcon size={16} />
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
-  
-    </div>
-  )
+      {/* KPIs */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <Kpi
+          title="Vendas (30d)"
+          subtitle="Quantidade"
+          value={nf.format(vendas30)}
+          icon={ShoppingCart}
+        />
+        <Kpi
+          title="Receita (30d)"
+          subtitle="Total faturado"
+          value={stn(receita30)}
+          icon={DollarSign}
+        />
+        <Kpi
+          title="Saldo (30d)"
+          subtitle="Entradas - Saídas"
+          value={nf2.format(saldo30)}
+          icon={TrendingUp}
+        />
+        <Kpi
+          title="Baixo estoque"
+          subtitle="Abaixo do mínimo"
+          value={nf.format(lowStockAll.length)}
+          icon={PackageCheck}
+        />
+        <Kpi
+          title="Req. pendentes"
+          subtitle="Por responder"
+          value={nf.format(reqsPendentesAll.length)}
+          icon={Clock}
+        />
+        <Kpi
+          title="Almoço hoje"
+          subtitle={`Preço: ${stn(precoHoje || 0)}`}
+          value={`${nf.format(relHoje?.totais?.total_almocos || 0)} • ${stn(
+            relHoje?.totais?.total_arrecadado || 0
+          )}`}
+          icon={CalendarDays}
+        />
+      </div>
+
+      {/* Visão Geral */}
+      {tab === "visao" && (
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Receita diária */}
+          <Card
+            className="lg:col-span-2"
+            title="Receita diária (últimos 30 dias)"
+            icon={DollarSign}
+            right={
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Fonte: vendas
+              </span>
+            }
+          >
+            {sales30.length ? (
+              <div className="h-[320px] md:h-[380px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={sales30}>
+                    <defs>
+                      <linearGradient
+                        id="g-receita"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor={CHART_COLORS.receita}
+                          stopOpacity={0.3}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor={CHART_COLORS.receita}
+                          stopOpacity={0.05}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip formatter={(v) => [stn(v), "Receita"]} />
+                    <ReferenceLine y={0} stroke="#94a3b8" />
+                    <Area
+                      type="monotone"
+                      dataKey="receita"
+                      stroke={CHART_COLORS.receita}
+                      strokeWidth={3}
+                      fill="url(#g-receita)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <EmptyState message="Sem dados de receita." />
+            )}
+          </Card>
+
+          {/* Status de requisições */}
+          <Card title="Requisições por status" icon={PieIcon}>
+            {statusCounts.length ? (
+              <>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RePieChart>
+                      <Pie
+                        data={statusCounts}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={65}
+                        outerRadius={110}
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {statusCounts.map((s, i) => (
+                          <Cell key={i} fill={pickStatusColor(s.name)} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v, n, p) => [v, p?.payload?.name]} />
+                      <Legend />
+                    </RePieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {statusCounts.map((s, i) => (
+                    <span
+                      key={i}
+                      className={cn(
+                        "inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-xs",
+                        statusColors?.[s.name] ||
+                          "bg-slate-50 text-slate-700 border-slate-200 dark:bg-indigo-600/40 dark:text-slate-200 dark:border-slate-800"
+                      )}
+                    >
+                      <span aria-hidden="true">
+                        {statusIcons?.[s.name] || "•"}
+                      </span>{" "}
+                      {s.name}: <b>{s.value}</b>
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <EmptyState message="Sem requisições para agrupar." />
+            )}
+          </Card>
+
+          {/* Estoque + Movimentações */}
+          <Card
+            className="lg:col-span-3"
+            title="Fluxo de movimentações & estoque (30 dias)"
+            icon={Activity}
+            right={
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Entradas / Saídas + curva
+              </span>
+            }
+          >
+            {inventorySeries.length ? (
+              <div className="h-[340px] md:h-[420px]">
+                <ComposedMovInventory data={inventorySeries} />
+              </div>
+            ) : (
+              <EmptyState message="Sem dados de movimentações." />
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* Operação */}
+      {tab === "operacao" && (
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Baixo Estoque (PAGINADO) */}
+          <Card
+            title="Materiais com baixo estoque"
+            icon={PackageCheck}
+            right={
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  value={qLowStock}
+                  onChange={(e) => {
+                    setQLowStock(e.target.value);
+                    lowStockPg.setPage(1);
+                  }}
+                  placeholder="Pesquisar material..."
+                  className="pl-9 pr-3 py-2 w-[220px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            }
+          >
+            {lowStockAll.length ? (
+              <>
+                <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {lowStockPg.slice.map((m, i) => (
+                    <li
+                      key={m.mat_id ?? i}
+                      className="py-3 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900 dark:text-white truncate">
+                          {m.mat_nome || `Material #${m.mat_id}`}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Estoque:{" "}
+                          <b className="text-slate-900 dark:text-white">
+                            {nf.format(Number(m.mat_quantidade_estoque) || 0)}
+                          </b>{" "}
+                          • Mín.:{" "}
+                          <b className="text-slate-900 dark:text-white">
+                            {nf.format(Number(m.mat_estoque_minimo) || 0)}
+                          </b>
+                        </p>
+                      </div>
+
+                      <span className="px-3 py-1 rounded-2xl text-xs border border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-200">
+                        Prioridade
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <Pager
+                  page={lowStockPg.page}
+                  pages={lowStockPg.pages}
+                  total={lowStockPg.total}
+                  canPrev={lowStockPg.canPrev}
+                  canNext={lowStockPg.canNext}
+                  onPrev={lowStockPg.prev}
+                  onNext={lowStockPg.next}
+                />
+              </>
+            ) : (
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                Sem itens abaixo do mínimo.
+              </div>
+            )}
+          </Card>
+
+          {/* Requisições pendentes (PAGINADO) */}
+          <Card
+            title="Requisições pendentes (minhas)"
+            icon={Clock}
+            right={
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  value={qReq}
+                  onChange={(e) => {
+                    setQReq(e.target.value);
+                    reqPg.setPage(1);
+                  }}
+                  placeholder="Pesquisar requisição..."
+                  className="pl-9 pr-3 py-2 w-[220px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            }
+          >
+            {reqsPendentesAll.length ? (
+              <>
+                <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {reqPg.slice.map((r, i) => (
+                    <li
+                      key={r.req_id ?? r.id ?? i}
+                      className="py-3 flex items-start justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                          {r.req_descricao ||
+                            r.descricao ||
+                            `Requisição #${r.req_id || r.id || i + 1}`}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          Status:{" "}
+                          <b className="text-slate-900 dark:text-white">
+                            {r.req_status}
+                          </b>
+                          {r.req_data ? (
+                            <>
+                              {" "}
+                              • Data:{" "}
+                              <b className="text-slate-900 dark:text-white">
+                                {fmtDate(r.req_data)}
+                              </b>
+                            </>
+                          ) : null}
+                        </p>
+                      </div>
+
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-xl border text-xs bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-800">
+                        {statusIcons?.Pendente || "•"} Pendente
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <Pager
+                  page={reqPg.page}
+                  pages={reqPg.pages}
+                  total={reqPg.total}
+                  canPrev={reqPg.canPrev}
+                  canNext={reqPg.canNext}
+                  onPrev={reqPg.prev}
+                  onNext={reqPg.next}
+                />
+              </>
+            ) : (
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                Sem requisições pendentes sob tua responsabilidade.
+              </div>
+            )}
+          </Card>
+
+          {/* Movimentações (PAGINADO) */}
+          <Card
+            title="Últimas movimentações"
+            icon={Activity}
+            right={
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  value={qMoves}
+                  onChange={(e) => {
+                    setQMoves(e.target.value);
+                    movesPg.setPage(1);
+                  }}
+                  placeholder="Pesquisar motivo/tipo..."
+                  className="pl-9 pr-3 py-2 w-[220px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            }
+          >
+            {movementsAll.length ? (
+              <>
+                <ol className="space-y-3">
+                  {movesPg.slice.map((mv, i) => {
+                    const tipo =
+                      String(mv.mov_tipo || "").toLowerCase() === "entrada"
+                        ? "Entrada"
+                        : "Saída";
+                    const pill =
+                      tipo === "Entrada"
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-200 dark:border-emerald-800"
+                        : "bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-900/20 dark:text-rose-200 dark:border-rose-800";
+                    return (
+                      <li
+                        key={mv.mov_id ?? i}
+                        className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-950/30 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                              {mv.mov_motivo || "Movimentação"}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                              Qtd:{" "}
+                              <b className="text-slate-900 dark:text-white">
+                                {nf.format(Number(mv.mov_quantidade || 0))}
+                              </b>
+                              {mv.mov_valor ? (
+                                <>
+                                  {" "}
+                                  • Valor:{" "}
+                                  <b className="text-slate-900 dark:text-white">
+                                    {stn(Number(mv.mov_valor || 0))}
+                                  </b>
+                                </>
+                              ) : null}
+                            </p>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span
+                              className={cn(
+                                "inline-flex items-center px-2 py-1 rounded-xl border text-xs",
+                                pill
+                              )}
+                            >
+                              {tipo}
+                            </span>
+                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                              {fmtDate(mv.mov_data)}
+                            </div>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                <Pager
+                  page={movesPg.page}
+                  pages={movesPg.pages}
+                  total={movesPg.total}
+                  canPrev={movesPg.canPrev}
+                  canNext={movesPg.canNext}
+                  onPrev={movesPg.prev}
+                  onNext={movesPg.next}
+                />
+              </>
+            ) : (
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                Sem movimentações recentes.
+              </div>
+            )}
+          </Card>
+
+          {/* Almoço (mini tendência) */}
+          <Card
+            className="lg:col-span-3"
+            title="Almoço (tendência mensal)"
+            icon={CalendarDays}
+            right={
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Preço hoje: {stn(precoHoje || 0)}
+              </span>
+            }
+          >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-1">
+                <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 p-4">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Hoje
+                  </p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">
+                    {nf.format(relHoje?.totais?.total_almocos || 0)} almoços
+                  </p>
+                  <p className="text-sm text-slate-700 dark:text-slate-200 mt-1">
+                    Total: <b>{stn(relHoje?.totais?.total_arrecadado || 0)}</b>
+                  </p>
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-950/40 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                        Evolução
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {loadingMensal
+                          ? "A carregar..."
+                          : almocoSerie?.length
+                          ? "Dias do mês"
+                          : "Sem dados"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 h-40 md:h-44">
+                    {almocoSerie?.length ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={almocoSerie}>
+                          <defs>
+                            <linearGradient
+                              id="g-almoco"
+                              x1="0"
+                              y1="0"
+                              x2="0"
+                              y2="1"
+                            >
+                              <stop
+                                offset="5%"
+                                stopColor="#0ea5e9"
+                                stopOpacity={0.3}
+                              />
+                              <stop
+                                offset="95%"
+                                stopColor="#0ea5e9"
+                                stopOpacity={0.05}
+                              />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" hide />
+                          <YAxis hide />
+                          <Tooltip
+                            formatter={(v, n) =>
+                              n === "almocos"
+                                ? [nf.format(Number(v)), "Almoços"]
+                                : [stn(Number(v)), "Receita"]
+                            }
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="almocos"
+                            stroke="#0ea5e9"
+                            fill="url(#g-almoco)"
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full grid place-items-center text-sm text-slate-500 dark:text-slate-400">
+                        {loadingMensal ? "A carregar..." : "Sem dados mensais."}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+    </Shell>
+  );
 }

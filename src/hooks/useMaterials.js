@@ -1,51 +1,76 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import api from "../api" // ajusta o caminho se necessário
+// src/hooks/useMaterials.js
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import api from "../api";
 
-// Decodifica JWT de forma segura
+/* -------- utils -------- */
 function parseJwt(token) {
   try {
-    const base64 = token.split(".")[1]
-    const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"))
-    return JSON.parse(json)
+    const base64 = token.split(".")[1];
+    const json = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(json || "{}");
   } catch {
-    return {}
+    return {};
   }
 }
 
+const asNumber = (v, d = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+
+const pickArray = (res) =>
+  Array.isArray(res?.data)
+    ? res.data
+    : Array.isArray(res?.data?.data)
+    ? res.data.data
+    : [];
+
+// normaliza string
+const norm = (s) => String(s ?? "").trim();
+const normKey = (s) =>
+  norm(s)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // remove acentos
+
+/* -------- hook -------- */
 export function useMaterials() {
-  /** ===== Permissões (estáticas na montagem) ===== */
-  const decodedRef = useRef(null)
+  /** ===== Auth & Permissões (estáveis) ===== */
+  const decodedRef = useRef(null);
   if (!decodedRef.current && typeof window !== "undefined") {
-    const token = localStorage.getItem("token")
-    decodedRef.current = token ? parseJwt(token) : {}
+    const t = localStorage.getItem("token");
+    decodedRef.current = t ? parseJwt(t) : {};
   }
-  const decoded = decodedRef.current || {}
-  const roles = decoded.roles || []
-  const isAdmin = roles.includes("admin")
+  const decoded = decodedRef.current || {};
+  const roles = Array.isArray(decoded.roles) ? decoded.roles : [];
+  const isAdmin = roles.includes("admin");
 
-  const categoryTemplates = (decoded.templates || []).filter(t => t.template_code === "manage_category")
-  const allowedCategoryIds = categoryTemplates
-    .map(p => Number(p.resource_id))
-    .filter(Boolean)
+  // manage_category pode vir com resource_id (limitação a certas categorias)
+  const allowedCategoryIds = (
+    Array.isArray(decoded.templates) ? decoded.templates : []
+  )
+    .filter((t) => t?.template_code === "manage_category")
+    .map((t) => asNumber(t?.resource_id))
+    .filter(Boolean);
 
-  /** ===== Estados ===== */
-  const [categories, setCategories] = useState([])
-  const [types, setTypes] = useState([])
-  const [materials, setMaterials] = useState([])
+  /** ===== Estado ===== */
+  const [categories, setCategories] = useState([]);
+  const [types, setTypes] = useState([]);
+  const [materials, setMaterials] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  // filtros / paginação
+  const [filterText, setFilterText] = useState("");
+  const [selectedType, setSelectedType] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [stockFilter, setStockFilter] = useState(""); // "", "low", "normal"
+  const [consumivelFilter, setConsumivelFilter] = useState(""); // "", "sim", "não"
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
-  // Filtros / paginação
-  const [filterText, setFilterText] = useState("")
-  const [selectedType, setSelectedType] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState("")
-  const [stockFilter, setStockFilter] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
-  const pageSize = 10
-
-  // Form
-  const [showForm, setShowForm] = useState(false)
+  // form
+  const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     mat_nome: "",
     mat_descricao: "",
@@ -55,202 +80,243 @@ export function useMaterials() {
     mat_fk_tipo: "",
     mat_localizacao: "",
     mat_vendavel: "SIM",
-  })
-  const [formErrors, setFormErrors] = useState({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [editingId, setEditingId] = useState(null)
+    mat_consumivel: "não",
+  });
+  const [formErrors, setFormErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
-  // Remoção (modal)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleteMode, setDeleteMode] = useState("partial") // 'partial' | 'all'
-  const [deleteQty, setDeleteQty] = useState(1)
-  const [deleteReason, setDeleteReason] = useState("")
-  const [deleteErrors, setDeleteErrors] = useState({})
+  // remoção
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteMode, setDeleteMode] = useState("partial"); // 'partial' | 'all'
+  const [deleteQty, setDeleteQty] = useState(1);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteErrors, setDeleteErrors] = useState({});
 
-  /** ===== Helpers de permissão (não-memoizados não causam loops) ===== */
-  const canManageType = (tipoId) => {
-    if (isAdmin) return true
-    const tipo = types.find(t => t.tipo_id === Number(tipoId))
-    return !!(tipo && allowedCategoryIds.includes(tipo.tipo_fk_categoria))
-  }
-  const canManageMaterial = (mat) => {
-    if (isAdmin) return true
-    return canManageType(mat.mat_fk_tipo)
-  }
+  /** ===== Helpers de permissão ===== */
+  const canManageType = useCallback(
+    (tipoId) => {
+      if (isAdmin) return true;
+      const t = types.find((tt) => Number(tt.tipo_id) === Number(tipoId));
+      return !!(t && allowedCategoryIds.includes(Number(t.tipo_fk_categoria)));
+    },
+    [isAdmin, types, allowedCategoryIds]
+  );
 
-  const canView = isAdmin || allowedCategoryIds.length > 0
-  const allowedTypeIds = useMemo(
-    () => types.filter(t => isAdmin || allowedCategoryIds.includes(t.tipo_fk_categoria)).map(t => t.tipo_id),
-    [types, isAdmin, allowedCategoryIds]
-  )
-  const canCreate = isAdmin || allowedTypeIds.length > 0
+  const canManageMaterial = useCallback(
+    (mat) => (isAdmin ? true : canManageType(mat?.mat_fk_tipo)),
+    [isAdmin, canManageType]
+  );
 
-  /** ===== Carregamento inicial (uma vez) ===== */
+  const canView = isAdmin || allowedCategoryIds.length > 0;
+
+  /** ===== Boot ===== */
   useEffect(() => {
-    let mounted = true
-    const load = async () => {
-      if (!canView) return
-      setLoading(true)
-      setError(null)
+    let alive = true;
+    (async () => {
+      if (!canView) return;
+      setLoading(true);
+      setError(null);
       try {
-        // 1) categorias
-        const catRes = await api.get("/categorias")
-        const allCats = (catRes.data?.data ?? catRes.data ?? []).map(c => ({
-          cat_id: c.cat_id, cat_nome: c.cat_nome
-        }))
-        const cats = isAdmin ? allCats : allCats.filter(c => allowedCategoryIds.includes(c.cat_id))
+        const [catRes, typRes, matRes] = await Promise.all([
+          api.get("/categorias"),
+          api.get("/tipos"),
+          api.get("/materiais"),
+        ]);
+        const catsRaw = pickArray(catRes).map((c) => ({
+          cat_id: c.cat_id,
+          cat_nome: c.cat_nome,
+        }));
+        const typesRaw = pickArray(typRes).map((t) => ({
+          tipo_id: t.tipo_id,
+          tipo_nome: t.tipo_nome,
+          tipo_fk_categoria: t.tipo_fk_categoria,
+        }));
+        const matsRaw = pickArray(matRes);
 
-        // 2) tipos
-        const typRes = await api.get("/tipos")
-        const allTypes = (typRes.data?.data ?? typRes.data ?? []).map(t => ({
-          tipo_id: t.tipo_id, tipo_nome: t.tipo_nome, tipo_fk_categoria: t.tipo_fk_categoria
-        }))
-        const typs = isAdmin ? allTypes : allTypes.filter(t => allowedCategoryIds.includes(t.tipo_fk_categoria))
+        const visibleCats = isAdmin
+          ? catsRaw
+          : catsRaw.filter((c) =>
+              allowedCategoryIds.includes(Number(c.cat_id))
+            );
+        const visibleTypes = isAdmin
+          ? typesRaw
+          : typesRaw.filter((t) =>
+              allowedCategoryIds.includes(Number(t.tipo_fk_categoria))
+            );
+        const visibleMaterials = isAdmin
+          ? matsRaw
+          : matsRaw.filter((m) =>
+              visibleTypes.some(
+                (t) => Number(t.tipo_id) === Number(m.mat_fk_tipo)
+              )
+            );
 
-        // 3) materiais
-        const matRes = await api.get("/materiais")
-        const list = Array.isArray(matRes.data?.data) ? matRes.data.data : matRes.data
-        const mats = isAdmin ? list : list.filter(m => {
-          const t = typs.find(tt => tt.tipo_id === m.mat_fk_tipo)
-          return !!t // só materiais cujo tipo é permitido
-        })
-
-        if (!mounted) return
-        setCategories(cats)
-        setTypes(typs)
-        setMaterials(mats)
+        if (!alive) return;
+        setCategories(visibleCats);
+        setTypes(visibleTypes);
+        setMaterials(visibleMaterials);
       } catch (e) {
-        console.error(e)
-        if (mounted) setError("Erro ao carregar dados")
+        console.error(e);
+        if (alive) setError("Erro ao carregar dados.");
       } finally {
-        if (mounted) setLoading(false)
+        if (alive) setLoading(false);
       }
-    }
-    load()
-    return () => { mounted = false }
-    // deps vazias -> roda só na montagem; nada aqui muda identidade causando loop
+    })();
+    return () => {
+      alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []); // canView e outros já estão “fixos” pela regra do teu projeto
 
-  /** ===== Utilitários de (re)carregar materiais quando preciso ===== */
-  const refetchMaterials = async () => {
+  const refetchMaterials = useCallback(async () => {
     try {
-      const res = await api.get("/materiais")
-      const list = Array.isArray(res.data?.data) ? res.data.data : res.data
-      // filtra por permissão com base no types atual (estável enquanto não recarregamos tipos)
-      const mats = isAdmin ? list : list.filter(m => canManageMaterial(m))
-      setMaterials(mats)
+      const res = await api.get("/materiais");
+      const list = pickArray(res);
+      setMaterials(isAdmin ? list : list.filter((m) => canManageMaterial(m)));
     } catch (e) {
-      console.error(e)
-      setError("Erro ao carregar materiais")
+      console.error(e);
+      setError("Erro ao carregar materiais.");
     }
-  }
+  }, [isAdmin, canManageMaterial]);
 
-  /** ===== Filtro client-side ===== */
+  /** ===== Filtros/Paginação ===== */
   const filteredMaterials = useMemo(() => {
-    const text = filterText.trim().toLowerCase()
-    return materials.filter(material => {
-      const matchesText =
-        material.mat_nome.toLowerCase().includes(text) ||
-        (material.mat_descricao || "").toLowerCase().includes(text)
+    const q = filterText.trim().toLowerCase();
 
-      const matchesType = !selectedType || String(material.mat_fk_tipo) === String(selectedType)
+    return materials.filter((m) => {
+      const byText =
+        (m.mat_nome ?? "").toLowerCase().includes(q) ||
+        (m.mat_descricao ?? "").toLowerCase().includes(q);
 
-      const mType = types.find(t => t.tipo_id === material.mat_fk_tipo)
-      const matchesCategory =
-        !selectedCategory || (mType && String(mType.tipo_fk_categoria) === String(selectedCategory))
+      const byType =
+        !selectedType || String(m.mat_fk_tipo) === String(selectedType);
 
-      const qty = Number(material.mat_quantidade_estoque)
-      const min = Number(material.mat_estoque_minimo)
-      const matchesStock =
+      const typeObj = types.find(
+        (t) => Number(t.tipo_id) === Number(m.mat_fk_tipo)
+      );
+      const byCategory =
+        !selectedCategory ||
+        (typeObj &&
+          String(typeObj.tipo_fk_categoria) === String(selectedCategory));
+
+      const qty = asNumber(m.mat_quantidade_estoque);
+      const min = asNumber(m.mat_estoque_minimo);
+      const byStock =
         !stockFilter ||
         (stockFilter === "low" && qty < min) ||
-        (stockFilter === "normal" && qty >= min)
+        (stockFilter === "normal" && qty >= min);
 
-      return matchesText && matchesType && matchesCategory && matchesStock
-    })
-  }, [materials, types, filterText, selectedType, selectedCategory, stockFilter])
+      const cons = (m.mat_consumivel ?? "").toString().toLowerCase();
+      const byConsumivel =
+        !consumivelFilter ||
+        (consumivelFilter === "sim" && cons === "sim") ||
+        (consumivelFilter === "não" && cons === "não");
 
-  // paginação
-  const totalPages = Math.max(1, Math.ceil(filteredMaterials.length / pageSize))
+      return byText && byType && byCategory && byStock && byConsumivel;
+    });
+  }, [
+    materials,
+    types,
+    filterText,
+    selectedType,
+    selectedCategory,
+    stockFilter,
+    consumivelFilter,
+  ]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredMaterials.length / pageSize)
+  );
   const pageMaterials = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return filteredMaterials.slice(start, start + pageSize)
-  }, [filteredMaterials, currentPage])
+    const start = (currentPage - 1) * pageSize;
+    return filteredMaterials.slice(start, start + pageSize);
+  }, [filteredMaterials, currentPage, pageSize]);
 
-  // reset de página ao mudar filtros
-  useEffect(() => { setCurrentPage(1) }, [filterText, selectedType, selectedCategory, stockFilter])
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    filterText,
+    selectedType,
+    selectedCategory,
+    stockFilter,
+    consumivelFilter,
+  ]);
 
   /** ===== Form ===== */
-  const validateForm = () => {
-    const errors = {}
-    if (!formData.mat_nome) errors.mat_nome = "Nome é obrigatório"
+  const validateForm = useCallback(() => {
+    const errs = {};
+    if (!formData.mat_nome.trim()) errs.mat_nome = "Nome é obrigatório.";
 
-    if (!formData.mat_fk_tipo) {
-      errors.mat_fk_tipo = "Tipo é obrigatório"
-    } else if (!canManageType(formData.mat_fk_tipo)) {
-      errors.mat_fk_tipo = "Sem permissão para este tipo"
-    }
+    if (!formData.mat_fk_tipo) errs.mat_fk_tipo = "Tipo é obrigatório.";
+    else if (!canManageType(formData.mat_fk_tipo))
+      errs.mat_fk_tipo = "Sem permissão para este tipo.";
 
-    if (!formData.mat_localizacao) errors.mat_localizacao = "Localização é obrigatória"
-    if (isNaN(Number(formData.mat_preco)) || Number(formData.mat_preco) < 0) errors.mat_preco = "Preço inválido"
+    if (!String(formData.mat_localizacao || "").trim())
+      errs.mat_localizacao = "Localização é obrigatória.";
 
-    const q = Number(formData.mat_quantidade_estoque)
-    if (isNaN(q) || q < 0) errors.mat_quantidade_estoque = "Quantidade inválida"
+    if (asNumber(formData.mat_preco, -1) < 0)
+      errs.mat_preco = "Preço inválido.";
+    if (asNumber(formData.mat_quantidade_estoque, -1) < 0)
+      errs.mat_quantidade_estoque = "Quantidade inválida.";
+    if (asNumber(formData.mat_estoque_minimo, -1) < 0)
+      errs.mat_estoque_minimo = "Estoque mínimo inválido.";
 
-    const min = Number(formData.mat_estoque_minimo)
-    if (isNaN(min) || min < 0) errors.mat_estoque_minimo = "Estoque mínimo inválido"
-
-    setFormErrors(errors)
-    return Object.keys(errors).length === 0
-  }
+    setFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  }, [formData, canManageType]);
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!validateForm()) return
-    setIsSubmitting(true)
+    e?.preventDefault?.();
+    if (!validateForm()) return;
+    setIsSubmitting(true);
+    setError(null);
+
+    const payload = {
+      ...formData,
+      mat_preco: asNumber(formData.mat_preco),
+      mat_quantidade_estoque: asNumber(formData.mat_quantidade_estoque),
+      mat_estoque_minimo: asNumber(formData.mat_estoque_minimo),
+      mat_fk_tipo: asNumber(formData.mat_fk_tipo),
+    };
+
     try {
-      const payload = {
-        ...formData,
-        mat_preco: Number(formData.mat_preco),
-        mat_quantidade_estoque: Number(formData.mat_quantidade_estoque),
-        mat_estoque_minimo: Number(formData.mat_estoque_minimo),
-        mat_fk_tipo: Number(formData.mat_fk_tipo),
-      }
       if (editingId) {
-        await api.put(`/materiais/${editingId}`, payload)
+        await api.put(`/materiais/${editingId}`, payload);
       } else {
-        await api.post(`/materiais`, payload)
+        await api.post("/materiais", payload);
       }
-      resetForm()
-      await refetchMaterials()
-    } catch (err) {
-      console.error(err?.response?.data || err)
-      setError(err?.response?.data?.message || "Erro ao salvar material")
+      resetForm();
+      await refetchMaterials();
+    } catch (e) {
+      console.error(e?.response?.data || e);
+      setError(e?.response?.data?.message || "Erro ao salvar material.");
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   const handleEdit = (mat) => {
     if (!canManageMaterial(mat)) {
-      window.alert("Sem permissão para editar este material")
-      return
+      window.alert("Sem permissão para editar este material.");
+      return;
     }
-    setShowForm(true)
-    setEditingId(mat.mat_id)
+    setShowForm(true);
+    setEditingId(mat.mat_id);
     setFormData({
-      mat_nome: mat.mat_nome,
-      mat_descricao: mat.mat_descricao,
-      mat_preco: mat.mat_preco,
-      mat_quantidade_estoque: mat.mat_quantidade_estoque,
-      mat_estoque_minimo: mat.mat_estoque_minimo,
-      mat_fk_tipo: mat.mat_fk_tipo,
-      mat_localizacao: mat.mat_localizacao,
-      mat_vendavel: mat.mat_vendavel,
-    })
-  }
+      mat_nome: mat.mat_nome ?? "",
+      mat_descricao: mat.mat_descricao ?? "",
+      mat_preco: String(mat.mat_preco ?? ""),
+      mat_quantidade_estoque: String(mat.mat_quantidade_estoque ?? ""),
+      mat_estoque_minimo: String(mat.mat_estoque_minimo ?? "3"),
+      mat_fk_tipo: String(mat.mat_fk_tipo ?? ""),
+      mat_localizacao: mat.mat_localizacao ?? "",
+      mat_vendavel: mat.mat_vendavel ?? "SIM",
+      mat_consumivel: mat.mat_consumivel ?? "não",
+    });
+  };
 
   const resetForm = () => {
     setFormData({
@@ -262,97 +328,397 @@ export function useMaterials() {
       mat_fk_tipo: "",
       mat_localizacao: "",
       mat_vendavel: "SIM",
-    })
-    setFormErrors({})
-    setShowForm(false)
-    setEditingId(null)
-  }
+      mat_consumivel: "não",
+    });
+    setFormErrors({});
+    setShowForm(false);
+    setEditingId(null);
+  };
 
   /** ===== Remoção ===== */
   const openDeleteModal = (material, mode = "partial") => {
-    const estoqueAtual = Number(material.mat_quantidade_estoque) || 0
-    setDeleteTarget(material)
-    setDeleteMode(mode)
-    setDeleteQty(mode === "all" ? estoqueAtual : Math.min(1, estoqueAtual) || 1)
-    setDeleteReason("")
-    setDeleteErrors({})
-    setDeleteOpen(true)
-  }
+    const estoqueAtual = asNumber(material?.mat_quantidade_estoque);
+    setDeleteTarget(material);
+    setDeleteMode(mode);
+    setDeleteQty(
+      mode === "all" ? estoqueAtual : Math.max(1, Math.min(1, estoqueAtual))
+    );
+    setDeleteReason("");
+    setDeleteErrors({});
+    setDeleteOpen(true);
+  };
 
   const closeDeleteModal = () => {
-    setDeleteOpen(false)
-    setDeleteTarget(null)
-    setDeleteMode("partial")
-    setDeleteQty(1)
-    setDeleteReason("")
-    setDeleteErrors({})
-  }
+    setDeleteOpen(false);
+    setDeleteTarget(null);
+    setDeleteMode("partial");
+    setDeleteQty(1);
+    setDeleteReason("");
+    setDeleteErrors({});
+  };
 
   const validateDelete = () => {
-    const errs = {}
-    const estoqueAtual = Number(deleteTarget?.mat_quantidade_estoque) || 0
-    const q = Number(deleteQty)
-    if (!Number.isFinite(q) || q <= 0) errs.qty = "Quantidade inválida."
-    else if (q > estoqueAtual) errs.qty = `Quantidade maior que o estoque disponível (${estoqueAtual}).`
-    if (!deleteReason || deleteReason.trim().length < 3) errs.reason = "Descreva o motivo (mín. 3 caracteres)."
-    setDeleteErrors(errs)
-    return Object.keys(errs).length === 0
-  }
+    const errs = {};
+    const estoqueAtual = asNumber(deleteTarget?.mat_quantidade_estoque);
+    const q = asNumber(deleteQty);
+
+    if (!Number.isFinite(q) || q <= 0) errs.qty = "Quantidade inválida.";
+    else if (q > estoqueAtual)
+      errs.qty = `Maior que o estoque disponível (${estoqueAtual}).`;
+
+    if (!deleteReason || deleteReason.trim().length < 3)
+      errs.reason = "Descreva o motivo.";
+
+    setDeleteErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTarget) return
+    if (!deleteTarget) return;
     if (!canManageMaterial(deleteTarget)) {
-      window.alert("Sem permissão para excluir este material")
-      return
+      window.alert("Sem permissão para excluir este material.");
+      return;
     }
-    if (!validateDelete()) return
+    if (!validateDelete()) return;
 
-    const id = deleteTarget.mat_id
-    const quantidade = Number(deleteQty)
-    const descricao = deleteReason.trim()
-    const estoqueAtual = Number(deleteTarget.mat_quantidade_estoque) || 0
+    const id = deleteTarget.mat_id;
+    try {
+      await api.delete(`/materiais/${id}`, {
+        data: {
+          quantidade: asNumber(deleteQty),
+          descricao: deleteReason.trim(),
+        },
+      });
+      closeDeleteModal();
+      await refetchMaterials();
+    } catch (e) {
+      console.error(e?.response?.data || e);
+      setError(e?.response?.data?.message || "Erro ao excluir material.");
+    }
+  };
+
+  /* =================== EXCEL IMPORT (front) =================== */
+  const mapHeader = (h) => {
+    const k = normKey(h);
+
+    if (["nome", "mat_nome", "material", "produto"].includes(k))
+      return "mat_nome";
+    if (["descricao", "descrição", "mat_descricao", "desc"].includes(k))
+      return "mat_descricao";
+    if (["preco", "preço", "mat_preco", "price"].includes(k))
+      return "mat_preco";
+    if (
+      [
+        "quantidade",
+        "qtd",
+        "stock",
+        "estoque",
+        "mat_quantidade_estoque",
+      ].includes(k)
+    )
+      return "mat_quantidade_estoque";
+    if (
+      [
+        "min",
+        "minimo",
+        "mínimo",
+        "estoque_minimo",
+        "mat_estoque_minimo",
+      ].includes(k)
+    )
+      return "mat_estoque_minimo";
+
+    // tipo: id ou nome
+    if (["tipo", "mat_fk_tipo", "tipo_id"].includes(k)) return "mat_fk_tipo";
+    if (["tipo_nome", "tiponome", "tipo name"].includes(k)) return "tipo_nome";
+
+    if (["localizacao", "localização", "local", "mat_localizacao"].includes(k))
+      return "mat_localizacao";
+    if (["vendavel", "vendável", "mat_vendavel"].includes(k))
+      return "mat_vendavel";
+    if (["consumivel", "consumível", "mat_consumivel"].includes(k))
+      return "mat_consumivel";
+
+    return null;
+  };
+
+  const parseVendavel = (v, def = "SIM") => {
+    const s = normKey(v);
+    if (["sim", "s", "1", "true", "yes"].includes(s)) return "SIM";
+    if (["nao", "não", "n", "0", "false", "no"].includes(s)) return "NAO";
+    return def;
+  };
+
+  const parseConsumivel = (v, def = "não") => {
+    const s = normKey(v);
+    if (["sim", "s", "1", "true", "yes"].includes(s)) return "sim";
+    if (["nao", "não", "n", "0", "false", "no"].includes(s)) return "não";
+    return def;
+  };
+
+  const importMaterialsFromExcel = async (file) => {
+    if (!file) return;
+
+    setLoading(true);
+    setError(null);
 
     try {
-      await api.delete(`/materiais/${id}`, { data: { quantidade, descricao } })
-      if (quantidade < estoqueAtual) {
-        console.log(`Removidas ${quantidade} unidade(s).`)
-      } else {
-        console.log("Material removido com sucesso.")
+      const ExcelJSMod = await import("exceljs");
+      const ExcelJS = ExcelJSMod.default ?? ExcelJSMod;
+
+      const wb = new ExcelJS.Workbook();
+      const buffer = await file.arrayBuffer();
+      await wb.xlsx.load(buffer);
+
+      const ws = wb.worksheets[0];
+      if (!ws) throw new Error("Ficheiro sem folhas (sheets).");
+
+      // header row
+      const headerRow = ws.getRow(1);
+      const headerMap = {}; // colIndex -> fieldKey
+      headerRow.eachCell((cell, colNumber) => {
+        const key = mapHeader(cell?.value);
+        if (key) headerMap[colNumber] = key;
+      });
+
+      const hasNome = Object.values(headerMap).includes("mat_nome");
+      const hasTipo =
+        Object.values(headerMap).includes("mat_fk_tipo") ||
+        Object.values(headerMap).includes("tipo_nome");
+      const hasLoc = Object.values(headerMap).includes("mat_localizacao");
+
+      if (!hasNome || !hasTipo || !hasLoc) {
+        throw new Error(
+          "Cabeçalhos inválidos. Precisa de: Nome + Tipo (id ou nome) + Localização."
+        );
       }
-      closeDeleteModal()
-      await refetchMaterials()
-    } catch (err) {
-      console.error(err?.response?.data || err)
-      setError(err?.response?.data?.message || "Erro ao excluir material")
+
+      const typeByName = new Map(types.map((t) => [normKey(t.tipo_nome), t]));
+      const toCreate = [];
+      const warnings = [];
+
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+
+        const obj = {};
+        Object.entries(headerMap).forEach(([col, field]) => {
+          obj[field] = row.getCell(Number(col))?.value;
+        });
+
+        const nome = norm(obj.mat_nome);
+        const localizacao = norm(obj.mat_localizacao);
+
+        let tipoId = obj.mat_fk_tipo != null ? asNumber(obj.mat_fk_tipo, 0) : 0;
+        if (!tipoId && obj.tipo_nome) {
+          const t = typeByName.get(normKey(obj.tipo_nome));
+          tipoId = t ? asNumber(t.tipo_id, 0) : 0;
+        }
+
+        if (!nome || !localizacao || !tipoId) {
+          warnings.push(
+            `Linha ${rowNumber}: falta Nome/Localização/Tipo válido.`
+          );
+          return;
+        }
+
+        if (!canManageType(tipoId)) {
+          warnings.push(
+            `Linha ${rowNumber}: sem permissão para o Tipo ${tipoId}.`
+          );
+          return;
+        }
+
+        toCreate.push({
+          mat_nome: nome,
+          mat_descricao: norm(obj.mat_descricao),
+          mat_preco: asNumber(obj.mat_preco, 0),
+          mat_quantidade_estoque: asNumber(obj.mat_quantidade_estoque, 0),
+          mat_estoque_minimo: asNumber(obj.mat_estoque_minimo, 3),
+          mat_fk_tipo: tipoId,
+          mat_localizacao: localizacao,
+          mat_vendavel: parseVendavel(obj.mat_vendavel, "SIM"),
+          mat_consumivel: parseConsumivel(obj.mat_consumivel, "não"),
+        });
+      });
+
+      if (!toCreate.length) {
+        throw new Error(
+          warnings.length
+            ? warnings.join("\n")
+            : "Nenhuma linha válida encontrada."
+        );
+      }
+
+      // envia um a um (compatível com teu backend atual)
+      for (const payload of toCreate) {
+        await api.post("/materiais", payload);
+      }
+
+      await refetchMaterials();
+
+      if (warnings.length) {
+        console.warn("Importação com avisos:\n" + warnings.join("\n"));
+        setError(
+          `Importado com avisos (${warnings.length}). Ex.: ${warnings
+            .slice(0, 3)
+            .join(" | ")}${warnings.length > 3 ? " ..." : ""}`
+        );
+      }
+    } catch (e) {
+      console.error(e);
+      setError(e?.message || "Erro ao importar Excel.");
+      throw e; // para o UI poder mostrar toast de erro
+    } finally {
+      setLoading(false);
     }
-  }
+  };
+
+  /* =================== PDF EXPORT (front) =================== */
+  const exportMaterialsPdf = async () => {
+    try {
+      const { default: jsPDF } = await import("jspdf");
+      const autoTableMod = await import("jspdf-autotable");
+      const autoTable = autoTableMod.default ?? autoTableMod;
+
+      const doc = new jsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a4",
+      });
+      const nowTxt = new Date().toLocaleString("pt-PT");
+
+      doc.setFontSize(14);
+      doc.text("Relatório de Materiais", 14, 12);
+      doc.setFontSize(9);
+      doc.text(`Gerado em: ${nowTxt}`, 14, 18);
+
+      const rows = filteredMaterials.map((m, i) => {
+        const tipo =
+          types.find((t) => String(t.tipo_id) === String(m.mat_fk_tipo))
+            ?.tipo_nome ?? "-";
+        const low =
+          Number(m.mat_quantidade_estoque) < Number(m.mat_estoque_minimo);
+
+        return [
+          String(i + 1),
+          m.mat_nome ?? "",
+          tipo,
+          m.mat_localizacao ?? "",
+          Number(m.mat_preco || 0).toLocaleString("pt-PT", {
+            style: "currency",
+            currency: "STN",
+          }),
+          String(m.mat_quantidade_estoque ?? 0),
+          String(m.mat_estoque_minimo ?? 0),
+          m.mat_vendavel === "SIM" ? "Sim" : "Não",
+          String(m.mat_consumivel).toLowerCase() === "sim" ? "Sim" : "Não",
+          low ? "BAIXO" : "OK",
+        ];
+      });
+
+      autoTable(doc, {
+        startY: 22,
+        head: [
+          [
+            "Nº",
+            "Nome",
+            "Tipo",
+            "Localização",
+            "Preço",
+            "Stock",
+            "Mín",
+            "Vendável",
+            "Consumível",
+            "Estado",
+          ],
+        ],
+        body: rows,
+        styles: { fontSize: 8, cellPadding: 2, overflow: "linebreak" },
+        columnStyles: {
+          4: { halign: "right" },
+          5: { halign: "right" },
+          6: { halign: "right" },
+        },
+      });
+
+      doc.save(`materiais_${Date.now()}.pdf`);
+    } catch (e) {
+      console.error(e);
+      setError("Falha ao exportar PDF.");
+    }
+  };
 
   return {
-    // permissões
-    isAdmin, canView, canCreate, canManageMaterial,
-    allowedCategoryIds, allowedTypeIds,
+    // perms
+    isAdmin,
+    canView,
+    canCreate:
+      isAdmin ||
+      types.some((t) =>
+        allowedCategoryIds.includes(Number(t.tipo_fk_categoria))
+      ),
+    canManageMaterial,
+    allowedCategoryIds,
+    allowedTypeIds: types
+      .filter(
+        (t) =>
+          isAdmin || allowedCategoryIds.includes(Number(t.tipo_fk_categoria))
+      )
+      .map((t) => t.tipo_id),
 
-    // dados/erro/loading
-    categories, types, materials, loading, error,
+    // dados/estado
+    categories,
+    types,
+    materials,
+    loading,
+    error,
 
     // filtros/paginação
-    filterText, setFilterText,
-    selectedType, setSelectedType,
-    selectedCategory, setSelectedCategory,
-    stockFilter, setStockFilter,
-    currentPage, setCurrentPage, totalPages,
-    filteredMaterials, pageMaterials,
+    filterText,
+    setFilterText,
+    selectedType,
+    setSelectedType,
+    selectedCategory,
+    setSelectedCategory,
+    stockFilter,
+    setStockFilter,
+    consumivelFilter,
+    setConsumivelFilter,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    filteredMaterials,
+    pageMaterials,
 
     // form
-    showForm, setShowForm,
-    formData, setFormData,
-    formErrors, isSubmitting, editingId,
-    handleSubmit, handleEdit, resetForm,
+    showForm,
+    setShowForm,
+    formData,
+    setFormData,
+    formErrors,
+    isSubmitting,
+    editingId,
+    handleSubmit,
+    handleEdit,
+    resetForm,
 
     // remoção
-    deleteOpen, deleteTarget, deleteMode,
-    deleteQty, setDeleteQty,
-    deleteReason, setDeleteReason,
-    deleteErrors, openDeleteModal, closeDeleteModal, handleConfirmDelete,
-  }
+    deleteOpen,
+    deleteTarget,
+    deleteMode,
+    deleteQty,
+    setDeleteQty,
+    deleteReason,
+    setDeleteReason,
+    deleteErrors,
+    openDeleteModal,
+    closeDeleteModal,
+    handleConfirmDelete,
+
+    // excel/pdf
+    importMaterialsFromExcel,
+    exportMaterialsPdf,
+  };
 }
+
+export default useMaterials;
